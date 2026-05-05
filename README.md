@@ -1,5 +1,10 @@
 # BXAgent - LLM-driven Generation of EMF Model Transformations
 
+[![Java CI with Maven](https://github.com/tbuchmann/bx-agent/workflows/Java%20CI%20with%20Maven/badge.svg)](https://github.com/tbuchmann/bx-agent/actions/workflows/maven.yml)
+[![License](https://img.shields.io/badge/license-EPL--2.0-blue.svg)](LICENSE)
+[![Java](https://img.shields.io/badge/Java-21%2B-orange.svg)](https://openjdk.org/projects/jdk/21/)
+[![Maven](https://img.shields.io/badge/build-Maven-red.svg)](https://maven.apache.org/)
+
 A Java CLI-tool, capable of generating Java Code for a bidirectional and incremental model transformation, based on two `.ecore`-metamodels and a natural language description.
 
 ## Features
