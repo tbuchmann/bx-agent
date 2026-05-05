@@ -68,8 +68,8 @@ java -jar target/bx-agent-1.0.0-SNAPSHOT.jar \
 
 | Option | Short | Description | Default |
 |--------|----------|--------------|---------|
-| `--source` | `-s` | Path to Source .ecore Datei | (required) |
-| `--target` | `-t` | Path to Target .ecore Datei | (required) |
+| `--source` | `-s` | Path to Source .ecore file | (required) |
+| `--target` | `-t` | Path to Target .ecore file | (required) |
 | `--output-dir` | `-o` | Output directory | `./generated` |
 | `--config` | `-c` | Config file | `config/agent.properties` |
 | `--description` | `-d` | natural language description | (optional) |
