@@ -34,8 +34,8 @@ class InteractivePrompterTest {
         assertEquals("target.getName().split(\" \")[0]", customExpr.expression());
 
         String output = out.toString();
-        assertTrue(output.contains("ambigous backward mapping"));
-        assertTrue(output.contains("Your choice [1-4]:"));
+        assertTrue(output.contains("Unklares Rückmapping"));
+        assertTrue(output.contains("Ihre Wahl [1-4]:"));
     }
 
     @Test
@@ -113,7 +113,7 @@ class InteractivePrompterTest {
         assertInstanceOf(InteractivePrompter.BackwardMappingStrategy.DefaultValue.class, strategy);
 
         String output = out.toString();
-        assertTrue(output.contains("Invalid input"));  // Should show error for "abc"
-        assertTrue(output.contains("between 1 and 4"));   // Should show error for "5"
+        assertTrue(output.contains("Ungültige Eingabe"));  // Should show error for "abc"
+        assertTrue(output.contains("zwischen 1 und 4"));   // Should show error for "5"
     }
 }

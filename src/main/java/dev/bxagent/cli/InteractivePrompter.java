@@ -46,18 +46,18 @@ public class InteractivePrompter {
     ) {
         out.println();
         out.println("═══════════════════════════════════════════════════════════════");
-        out.println("[bx-agent] ambigous backward mapping:");
+        out.println("[bxagent] Unklares Rückmapping:");
         out.println("  " + unresolvedDescription);
         out.println();
         out.println("  Mapping: " + targetAttr + " → " + sourceAttr);
         out.println();
-        out.println("  Options:");
-        out.println("  [1] I specify a Java expression for the backward direction");
-        out.println("  [2] Backward direction should return standard value (e.g. 0, \"\", null)");
-        out.println("  [3] Backward direction should throw RuntimeException (lossy transformation)");
-        out.println("  [4] Ommit this attribute in the backward direction");
+        out.println("  Optionen:");
+        out.println("  [1] Ich gebe einen Java-Ausdruck für die Rückrichtung an");
+        out.println("  [2] Rückrichtung soll einen Standardwert zurückgeben (z.B. 0, \"\", null)");
+        out.println("  [3] Rückrichtung soll eine RuntimeException werfen (verlustbehaftete Transformation)");
+        out.println("  [4] Dieses Attribut in der Rückrichtung weglassen");
         out.println();
-        out.print("Your choice [1-4]: ");
+        out.print("Ihre Wahl [1-4]: ");
         out.flush();
 
         int choice = readIntInRange(1, 4);
@@ -76,21 +76,21 @@ public class InteractivePrompter {
      */
     private BackwardMappingStrategy promptForCustomExpression(String targetAttr, String sourceAttr) {
         out.println();
-        out.println("Enter Java expression (variable 'target' available):");
-        out.println("Example: target.getName().contains(\" \") ? target.getName().substring(0, target.getName().indexOf(' ')) : target.getName()");
+        out.println("Geben Sie einen Java-Ausdruck ein (Variable 'target' verfügbar):");
+        out.println("Beispiel: target.getName().contains(\" \") ? target.getName().substring(0, target.getName().indexOf(' ')) : target.getName()");
         out.print("> ");
         out.flush();
 
         String expression = scanner.nextLine().trim();
 
         if (expression.isEmpty()) {
-            out.println("[!] Empty expression - using RuntimeException instead");
+            out.println("[!] Leerer Ausdruck - verwende RuntimeException stattdessen");
             return new BackwardMappingStrategy.ThrowException();
         }
 
         // Basic validation
         if (!expression.contains("target")) {
-            out.println("[!] Warning: Expression does not contain 'target' - could be wrong");
+            out.println("[!] Warnung: Ausdruck enthält nicht 'target' - könnte fehlerhaft sein");
         }
 
         return new BackwardMappingStrategy.CustomExpression(expression);
@@ -101,12 +101,12 @@ public class InteractivePrompter {
      */
     private BackwardMappingStrategy promptForDefaultValue(String sourceAttr) {
         out.println();
-        out.println("Which standard value should be used?");
+        out.println("Welcher Standardwert soll verwendet werden?");
         out.println("  [1] null");
-        out.println("  [2] \"\" (empty String)");
-        out.println("  [3] 0 (Number)");
+        out.println("  [2] \"\" (leerer String)");
+        out.println("  [3] 0 (Zahl)");
         out.println("  [4] false (Boolean)");
-        out.print("Your choice [1-4]: ");
+        out.print("Ihre Wahl [1-4]: ");
         out.flush();
 
         int choice = readIntInRange(1, 4);
@@ -133,11 +133,11 @@ public class InteractivePrompter {
                 if (value >= min && value <= max) {
                     return value;
                 }
-                out.println("[!] Please pick number between " + min + " and " + max);
+                out.println("[!] Bitte wählen Sie eine Zahl zwischen " + min + " und " + max);
                 out.print("> ");
                 out.flush();
             } catch (NumberFormatException e) {
-                out.println("[!] Invalid input - please enter number");
+                out.println("[!] Ungültige Eingabe - bitte eine Zahl eingeben");
                 out.print("> ");
                 out.flush();
             }

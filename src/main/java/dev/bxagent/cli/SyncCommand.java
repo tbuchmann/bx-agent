@@ -22,7 +22,7 @@ import java.util.concurrent.Callable;
  * CLI sub-command for synchronising two independently modified models.
  *
  * <pre>
- *   java -jar bx-agent.jar sync \
+ *   java -jar bxagent.jar sync \
  *     --src families.xmi \
  *     --tgt persons.xmi \
  *     --transformation-class dev.bxagent.generated.Families2PersonsTransformation \

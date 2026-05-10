@@ -484,7 +484,7 @@ class Families2PersonsCodegenTest {
             "sync() should delegate to mapRoleBasedTypesIncrementalBack");
 
         // Javadoc with known limitation comment
-        assertTrue(code.contains("KNOWN EDGE-CASE"),
+        assertTrue(code.contains("BEKANNTER RANDFALL"),
             "Should contain Javadoc warning about delete-recreate edge case");
     }
 

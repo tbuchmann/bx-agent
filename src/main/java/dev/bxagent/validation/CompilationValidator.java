@@ -37,7 +37,7 @@ public class CompilationValidator {
         Path tempDir = null;
         try {
             // Create temporary directory for compilation
-            tempDir = Files.createTempDirectory("emt-agent-compile-");
+            tempDir = Files.createTempDirectory("bxagent-compile-");
             System.out.println("[CompilationValidator] Using temp directory: " + tempDir);
 
             String currentCode = generatedFile.content();

@@ -1,0 +1,43 @@
+# BXAgent Configuration Example
+# Copy this file to agent.properties and adjust the values
+
+# ============================================================================
+# LLM Provider Configuration
+# ============================================================================
+
+# Provider: anthropic, openai, or ollama
+llm.provider=ollama
+
+# Model name (provider-specific)
+# Anthropic: claude-opus-4-6, claude-sonnet-4-5-20250929, etc.
+# OpenAI: gpt-4, gpt-4-turbo-preview, etc.
+# Ollama: llama2, codellama, mistral, etc.
+llm.model=devstral-small-2:latest
+
+# ============================================================================
+# API Configuration
+# ============================================================================
+
+# API Key (not needed for Ollama)
+# Can also be set via environment variable: EMT_LLM_API_KEY
+llm.api_key=
+
+# Base URL (optional, for custom endpoints)
+# Anthropic default: https://api.anthropic.com/v1
+# OpenAI default: https://api.openai.com/v1
+# Ollama default: http://localhost:11434/api
+llm.base_url=http://localhost:11434
+
+# ============================================================================
+# LLM Parameters
+# ============================================================================
+
+# Temperature (0.0 = deterministic, 1.0 = creative)
+# Recommended: 0.2 for code generation
+llm.temperature=0.2
+
+# Maximum tokens in response
+llm.max_tokens=4096
+
+# Request timeout in seconds
+llm.timeout=60

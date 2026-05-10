@@ -29,7 +29,7 @@ class TransformCommandTest {
 
         assertEquals(0, exitCode);
         String output = sw.toString();
-        assertTrue(output.contains("bx-agent"));
+        assertTrue(output.contains("bxagent"));
         assertTrue(output.contains("--source"));
         assertTrue(output.contains("--target"));
         assertTrue(output.contains("--output-dir"));
@@ -47,7 +47,7 @@ class TransformCommandTest {
 
         assertEquals(0, exitCode);
         String output = sw.toString();
-        assertTrue(output.contains("bx-agent"));
+        assertTrue(output.contains("bxagent"));
         assertTrue(output.contains("1.0.0"));
     }
 

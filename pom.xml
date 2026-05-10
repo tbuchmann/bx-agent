@@ -6,11 +6,11 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>dev.bxagent</groupId>
-    <artifactId>bx-agent</artifactId>
+    <artifactId>bxagent</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
-    <name>BXAgent</name>
+    <name>EMT Agent</name>
     <description>CLI agent for bidirectional EMF transformations using LLMs</description>
 
     <properties>
@@ -24,9 +24,17 @@
         <freemarker.version>2.3.34</freemarker.version>
         <langchain4j.version>1.11.0</langchain4j.version>
         <junit.version>6.0.3</junit.version>
+        <jline.version>3.26.3</jline.version>
     </properties>
 
     <dependencies>
+        <!-- Interactive terminal: tab-completion + history -->
+        <dependency>
+            <groupId>org.jline</groupId>
+            <artifactId>jline</artifactId>
+            <version>${jline.version}</version>
+        </dependency>
+
         <!-- CLI Framework -->
         <dependency>
             <groupId>info.picocli</groupId>

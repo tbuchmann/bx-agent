@@ -24,9 +24,9 @@ import java.util.concurrent.Callable;
  * Generates bidirectional EMF transformations from two .ecore metamodels.
  */
 @Command(
-    name = "bx-agent",
+    name = "bxagent",
     mixinStandardHelpOptions = true,
-    version = "bx-agent 1.0.0",
+    version = "bxagent 1.0.0",
     description = "Generates bidirectional EMF transformations using LLMs",
     subcommands = {SyncCommand.class}
 )
@@ -107,43 +107,40 @@ public class TransformCommand implements Callable<Integer> {
     @Override
     public Integer call() {
         try {
-            System.out.println("╔════════════════════════════════════════════════════════════════╗");
-            System.out.println("║              BX Agent - Transformation Generator               ║");
-            System.out.println("╚════════════════════════════════════════════════════════════════╝");
-            System.out.println();
+            TerminalHelper.printBanner();
 
             // Step 1: Load configuration
-            System.out.println("[1/7] Loading configuration...");
+            TerminalHelper.step("[1/7] Loading configuration...");
             if (!Files.exists(configPath)) {
-                System.err.println("ERROR: Config file not found: " + configPath);
-                System.err.println("Please create config/agent.properties (see config/agent.properties.example)");
+                TerminalHelper.error("Config file not found: " + configPath);
+                TerminalHelper.error("Please create config/agent.properties (see config/agent.properties.example)");
                 return 1;
             }
             LlmConfig config = new LlmConfig(configPath.toString());
             LlmClient llmClient = createLlmClient(config);
-            System.out.println("      ✓ Using provider: " + llmClient.getProviderName() + " / " + llmClient.getModelName());
+            TerminalHelper.success("Provider: " + TerminalHelper.cyan(llmClient.getProviderName() + " / " + llmClient.getModelName()));
             System.out.println();
 
             // Step 2: Parse source metamodel
-            System.out.println("[2/7] Parsing source metamodel: " + sourceEcore.getFileName());
+            TerminalHelper.step("[2/7] Parsing source metamodel: " + TerminalHelper.cyan(sourceEcore.getFileName().toString()));
             if (!Files.exists(sourceEcore)) {
-                System.err.println("ERROR: Source .ecore file not found: " + sourceEcore);
+                TerminalHelper.error("Source .ecore file not found: " + sourceEcore);
                 return 1;
             }
             MetamodelSummary.Summary sourceSummary = EcoreParser.parse(sourceEcore);
-            System.out.println("      ✓ Package: " + sourceSummary.packageName());
-            System.out.println("      ✓ Classes: " + sourceSummary.classes().size());
+            TerminalHelper.success("Package: " + TerminalHelper.cyan(sourceSummary.packageName()));
+            TerminalHelper.success("Classes: " + sourceSummary.classes().size());
             System.out.println();
 
             // Step 3: Parse target metamodel
-            System.out.println("[3/7] Parsing target metamodel: " + targetEcore.getFileName());
+            TerminalHelper.step("[3/7] Parsing target metamodel: " + TerminalHelper.cyan(targetEcore.getFileName().toString()));
             if (!Files.exists(targetEcore)) {
-                System.err.println("ERROR: Target .ecore file not found: " + targetEcore);
+                TerminalHelper.error("Target .ecore file not found: " + targetEcore);
                 return 1;
             }
             MetamodelSummary.Summary targetSummary = EcoreParser.parse(targetEcore);
-            System.out.println("      ✓ Package: " + targetSummary.packageName());
-            System.out.println("      ✓ Classes: " + targetSummary.classes().size());
+            TerminalHelper.success("Package: " + TerminalHelper.cyan(targetSummary.packageName()));
+            TerminalHelper.success("Classes: " + targetSummary.classes().size());
             System.out.println();
 
             // Step 4: Extract mapping (from LLM or cached JSON)
@@ -151,20 +148,23 @@ public class TransformCommand implements Callable<Integer> {
             extractor.setDebugLog(debugLog);
             MappingModel.TransformationSpec spec;
             if (fromJson != null) {
-                System.out.println("[4/7] Loading transformation mappings from cached JSON: " + fromJson);
+                TerminalHelper.step("[4/7] Loading transformation mappings from cached JSON: " + TerminalHelper.cyan(fromJson.toString()));
                 if (!Files.exists(fromJson)) {
-                    System.err.println("ERROR: JSON file not found: " + fromJson);
+                    TerminalHelper.error("JSON file not found: " + fromJson);
                     return 1;
                 }
                 spec = extractor.extractFromJson(Files.readString(fromJson));
-                System.out.println("      ✓ Loaded from cache (no LLM call)");
+                TerminalHelper.success("Loaded from cache (no LLM call)");
             } else {
-                System.out.println("[4/7] Extracting transformation mappings via LLM...");
-                spec = extractor.extract(sourceSummary, targetSummary, description);
+                TerminalHelper.step("[4/7] Extracting transformation mappings via LLM...");
+                final MetamodelSummary.Summary src = sourceSummary, tgt = targetSummary;
+                spec = TerminalHelper.spinner(
+                        "Querying " + TerminalHelper.cyan(llmClient.getProviderName() + " / " + llmClient.getModelName()),
+                        () -> extractor.extract(src, tgt, description));
             }
-            System.out.println("      ✓ Type mappings: " + spec.typeMappings().size());
-            System.out.println("      ✓ Attribute mappings: " + spec.attributeMappings().size());
-            System.out.println("      ✓ Reference mappings: " + spec.referenceMappings().size());
+            TerminalHelper.success("Type mappings: " + spec.typeMappings().size());
+            TerminalHelper.success("Attribute mappings: " + spec.attributeMappings().size());
+            TerminalHelper.success("Reference mappings: " + spec.referenceMappings().size());
 
             // Save raw LLM response for debugging (skip if loaded from cache)
             Files.createDirectories(outputDir);
@@ -172,7 +172,7 @@ public class TransformCommand implements Callable<Integer> {
             if (rawResponse != null && fromJson == null) {
                 Path debugPath = outputDir.resolve("mapping-llm-response.json");
                 Files.writeString(debugPath, rawResponse);
-                System.out.println("      ✓ LLM response saved to: " + debugPath);
+                TerminalHelper.success("LLM response saved to: " + TerminalHelper.cyan(debugPath.toString()));
             }
             System.out.println();
 
@@ -195,11 +195,11 @@ public class TransformCommand implements Callable<Integer> {
                     spec.sqlTypeMapping(),
                     spec.targetLinkMetamodel()
                 );
-                System.out.println("      ✓ Excluded attributes: " + excludedAttributes);
+                TerminalHelper.success("Excluded attributes: " + excludedAttributes);
             }
 
             // Step 5: Check bidirectionality
-            System.out.println("[5/7] Checking bidirectionality...");
+            TerminalHelper.step("[5/7] Checking bidirectionality...");
             BidirectionalityChecker checker = interactive
                 ? new BidirectionalityChecker(new InteractivePrompter())
                 : new BidirectionalityChecker(null);
@@ -207,76 +207,78 @@ public class TransformCommand implements Callable<Integer> {
             long missingBackward = enhancedSpec.attributeMappings().stream()
                 .filter(m -> m.backwardExpression() == null)
                 .count();
-            System.out.println("      ✓ Backward mappings: " +
+            TerminalHelper.success("Backward mappings: " +
                 (enhancedSpec.attributeMappings().size() - missingBackward) + "/" +
                 enhancedSpec.attributeMappings().size());
             System.out.println();
 
             // Step 6: Generate code
-            System.out.println("[6/7] Generating Java code...");
+            TerminalHelper.step("[6/7] Generating Java code...");
             TransformationCodegen codegen = new TransformationCodegen();
             GeneratedFile transformationFile = codegen.generateTransformation(enhancedSpec);
             GeneratedFile testFile = codegen.generateTest(enhancedSpec);
-            System.out.println("      ✓ " + transformationFile.fileName());
-            System.out.println("      ✓ " + testFile.fileName());
+            TerminalHelper.success(TerminalHelper.cyan(transformationFile.fileName()));
+            TerminalHelper.success(TerminalHelper.cyan(testFile.fileName()));
             System.out.println();
 
             // Step 7: Validate (optional)
             if (validate) {
-                System.out.println("[7/7] Validating generated code...");
+                TerminalHelper.step("[7/7] Validating generated code...");
                 CompilationValidator validator = new CompilationValidator(llmClient);
-                CompilationValidator.ValidationResult result = validator.validate(transformationFile);
+                final GeneratedFile fileToValidate = transformationFile;
+                CompilationValidator.ValidationResult result = TerminalHelper.spinner(
+                        "Compiling " + TerminalHelper.cyan(fileToValidate.fileName()),
+                        () -> validator.validate(fileToValidate));
 
                 if (result.success()) {
-                    System.out.println("      ✓ Compilation successful");
-                    // Update file content if it was fixed
+                    TerminalHelper.success("Compilation successful");
                     if (!result.finalCode().equals(transformationFile.content())) {
                         transformationFile = new GeneratedFile(
                             transformationFile.fileName(),
                             result.finalCode()
                         );
-                        System.out.println("      ✓ Code was automatically fixed by LLM");
+                        TerminalHelper.success("Code was automatically fixed by LLM");
                     }
                 } else {
-                    System.err.println("      ✗ Compilation failed:");
+                    TerminalHelper.error("Compilation failed:");
                     System.err.println(result.getErrorSummary());
                     System.err.println();
-                    System.err.println("Generated code will still be written, but may not compile.");
-                    System.err.println("Please review and fix manually, or re-run with different inputs.");
+                    TerminalHelper.warn("Generated code will still be written, but may not compile.");
+                    TerminalHelper.warn("Please review and fix manually, or re-run with different inputs.");
                 }
                 System.out.println();
             } else {
-                System.out.println("[7/7] Skipping validation (--no-validate)");
+                TerminalHelper.step("[7/7] Skipping validation (--no-validate)");
                 System.out.println();
             }
 
             // Write files to disk
-            System.out.println("Writing generated files to: " + outputDir);
+            TerminalHelper.step("Writing generated files to: " + TerminalHelper.cyan(outputDir.toString()));
             Files.createDirectories(outputDir);
 
             Path transformationPath = outputDir.resolve(transformationFile.fileName());
             Files.writeString(transformationPath, transformationFile.content());
-            System.out.println("      ✓ " + transformationPath);
+            TerminalHelper.success(TerminalHelper.cyan(transformationPath.toString()));
 
             Path testPath = outputDir.resolve(testFile.fileName());
             Files.writeString(testPath, testFile.content());
-            System.out.println("      ✓ " + testPath);
+            TerminalHelper.success(TerminalHelper.cyan(testPath.toString()));
 
             System.out.println();
-            System.out.println("════════════════════════════════════════════════════════════════");
-            System.out.println("✓ Generation complete!");
-            System.out.println("════════════════════════════════════════════════════════════════");
+            TerminalHelper.separator();
+            TerminalHelper.footer("✓ Generation complete!");
+            TerminalHelper.separator();
 
             return 0;
 
         } catch (IOException e) {
             System.err.println();
-            System.err.println("ERROR: IO error: " + e.getMessage());
+            TerminalHelper.error("IO error: " + e.getMessage());
             e.printStackTrace();
             return 1;
         } catch (Exception e) {
             System.err.println();
-            System.err.println("ERROR: Unexpected error: " + e.getMessage());
+            TerminalHelper.error("Unexpected error: " + e.getMessage());
             e.printStackTrace();
             return 1;
         }

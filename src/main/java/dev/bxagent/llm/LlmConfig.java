@@ -14,7 +14,7 @@ import java.util.Properties;
 public class LlmConfig {
 
     private static final String DEFAULT_CONFIG_PATH = System.getProperty("user.home")
-        + "/.emt-agent/config.properties";
+        + "/.bxagent/config.properties";
     private static final String ENV_API_KEY = "EMT_LLM_API_KEY";
 
     private final Properties properties;
