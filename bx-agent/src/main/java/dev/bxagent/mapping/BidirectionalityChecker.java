@@ -4,6 +4,7 @@ import dev.bxagent.cli.InteractivePrompter;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 
 /**
  * Checks transformation specifications for bidirectionality issues
@@ -12,14 +13,20 @@ import java.util.List;
 public class BidirectionalityChecker {
 
     private final InteractivePrompter prompter;
+    private final Function<List<String>, Integer> choiceResolver;
 
     public BidirectionalityChecker(InteractivePrompter prompter) {
         this.prompter = prompter;
+        this.choiceResolver = null;
     }
 
-    /**
-     * Default constructor using System.in/out.
-     */
+    /** For programmatic callers (Eclipse, tests): resolver receives option labels, returns 0-based index. */
+    public BidirectionalityChecker(Function<List<String>, Integer> choiceResolver) {
+        this.prompter = null;
+        this.choiceResolver = choiceResolver;
+    }
+
+    /** Default constructor using System.in/out. */
     public BidirectionalityChecker() {
         this(new InteractivePrompter());
     }
@@ -89,18 +96,21 @@ public class BidirectionalityChecker {
                 continue;
             }
 
-            if (prompter == null) {
+            // Resolve via available mechanism
+            InteractivePrompter.BackwardMappingStrategy strategy;
+            if (choiceResolver != null) {
+                strategy = resolveViaFunction(unmappedAttr, unresolvedDescription);
+            } else if (prompter != null) {
+                strategy = prompter.promptForBackwardMapping(
+                    unresolvedDescription,
+                    unmappedAttr.sourceAttr(),
+                    unmappedAttr.targetAttr()
+                );
+            } else {
                 System.out.println("[BidirectionalityChecker] Non-interactive mode: skipping '"
                     + unresolvedDescription + "'");
                 continue;
             }
-
-            // Prompt user for resolution
-            InteractivePrompter.BackwardMappingStrategy strategy = prompter.promptForBackwardMapping(
-                unresolvedDescription,
-                unmappedAttr.sourceAttr(),
-                unmappedAttr.targetAttr()
-            );
 
             // Update the mapping based on strategy
             MappingModel.AttributeMapping updatedMapping = applyStrategy(unmappedAttr, strategy);
@@ -135,6 +145,35 @@ public class BidirectionalityChecker {
             spec.sqlTypeMapping(),
             spec.targetLinkMetamodel()
         );
+    }
+
+    /**
+     * Resolves a backward mapping using the injected choice resolver (0-based index).
+     * Offers three options: Default value, Throw exception, Skip.
+     * Custom expressions are not supported in this path (no text-input channel available).
+     */
+    private InteractivePrompter.BackwardMappingStrategy resolveViaFunction(
+        MappingModel.AttributeMapping attr, String description) {
+
+        List<String> mainOptions = List.of(
+            "Default value (null, \"\", 0, or false)",
+            "Throw RuntimeException (lossy transformation)",
+            "Skip (omit from backward direction)"
+        );
+        int choice = choiceResolver.apply(mainOptions);
+
+        return switch (choice) {
+            case 0 -> {
+                List<String> defaults = List.of("null", "\"\" (empty string)", "0 (number)", "false (boolean)");
+                int dChoice = choiceResolver.apply(defaults);
+                String val = switch (dChoice) {
+                    case 0 -> "null"; case 1 -> "\"\""; case 2 -> "0"; default -> "false";
+                };
+                yield new InteractivePrompter.BackwardMappingStrategy.DefaultValue(val);
+            }
+            case 1 -> new InteractivePrompter.BackwardMappingStrategy.ThrowException();
+            default -> new InteractivePrompter.BackwardMappingStrategy.Skip();
+        };
     }
 
     /**

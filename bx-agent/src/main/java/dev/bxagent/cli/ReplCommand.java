@@ -1,14 +1,10 @@
 package dev.bxagent.cli;
 
-import dev.bxagent.codegen.GeneratedFile;
-import dev.bxagent.codegen.TransformationCodegen;
 import dev.bxagent.llm.*;
 import dev.bxagent.mapping.BidirectionalityChecker;
-import dev.bxagent.mapping.MappingExtractor;
 import dev.bxagent.mapping.MappingModel;
 import dev.bxagent.metamodel.EcoreParser;
-import dev.bxagent.metamodel.MetamodelSummary;
-import dev.bxagent.validation.CompilationValidator;
+import dev.bxagent.service.BXAgentService;
 
 import org.jline.reader.*;
 import org.jline.reader.impl.completer.FileNameCompleter;
@@ -35,6 +31,8 @@ public final class ReplCommand {
     private ReplCommand() {}
 
     // ── Entry point ──────────────────────────────────────────────────────────
+
+    private static final BXAgentService SERVICE = new BXAgentService();
 
     private static final List<String> ALL_COMMANDS = List.of(
         "/help", "/exit", "/quit", "/status", "/config",
@@ -301,20 +299,20 @@ public final class ReplCommand {
         if (rest.isEmpty()) { TerminalHelper.error("Usage: /source <path-to.ecore>"); return; }
         Path p = Paths.get(rest);
         if (!Files.exists(p)) { TerminalHelper.error("File not found: " + p); return; }
-        MetamodelSummary.Summary summary = EcoreParser.parse(p);
+        s.sourceSummary = EcoreParser.parse(p);
         s.sourceEcore = p;
-        TerminalHelper.success("Source loaded: " + TerminalHelper.cyan(summary.packageName())
-                + " (" + summary.classes().size() + " classes)");
+        TerminalHelper.success("Source loaded: " + TerminalHelper.cyan(s.sourceSummary.packageName())
+                + " (" + s.sourceSummary.classes().size() + " classes)");
     }
 
     private static void cmdTarget(SessionState s, String rest) throws IOException {
         if (rest.isEmpty()) { TerminalHelper.error("Usage: /target <path-to.ecore>"); return; }
         Path p = Paths.get(rest);
         if (!Files.exists(p)) { TerminalHelper.error("File not found: " + p); return; }
-        MetamodelSummary.Summary summary = EcoreParser.parse(p);
+        s.targetSummary = EcoreParser.parse(p);
         s.targetEcore = p;
-        TerminalHelper.success("Target loaded: " + TerminalHelper.cyan(summary.packageName())
-                + " (" + summary.classes().size() + " classes)");
+        TerminalHelper.success("Target loaded: " + TerminalHelper.cyan(s.targetSummary.packageName())
+                + " (" + s.targetSummary.classes().size() + " classes)");
     }
 
     // ── /description + /exclude + /output ────────────────────────────────────
@@ -356,50 +354,41 @@ public final class ReplCommand {
     // ── /plan ────────────────────────────────────────────────────────────────
 
     private static void cmdPlan(SessionState s, String rest) throws Exception {
-        MappingExtractor extractor;
+        Path fromJson = null;
 
         if (rest.startsWith("--from ")) {
-            // Load from cached JSON
             String filePath = rest.substring("--from ".length()).trim();
-            Path jsonFile = Paths.get(filePath);
-            if (!Files.exists(jsonFile)) { TerminalHelper.error("File not found: " + jsonFile); return; }
-            extractor = new MappingExtractor(null);
-            extractor.setDebugLog(s.debugLog);
-            s.spec = extractor.extractFromJson(Files.readString(jsonFile));
-            s.rawMappingJson = Files.readString(jsonFile);
-            TerminalHelper.success("Plan loaded from: " + TerminalHelper.cyan(filePath));
+            fromJson = Paths.get(filePath);
+            if (!Files.exists(fromJson)) { TerminalHelper.error("File not found: " + fromJson); return; }
         } else {
-            // LLM call
-            if (s.sourceEcore == null) { TerminalHelper.error("Set source metamodel first: /source <path>"); return; }
-            if (s.targetEcore == null) { TerminalHelper.error("Set target metamodel first: /target <path>"); return; }
+            if (s.sourceSummary == null) { TerminalHelper.error("Set source metamodel first: /source <path>"); return; }
+            if (s.targetSummary == null) { TerminalHelper.error("Set target metamodel first: /target <path>"); return; }
+        }
 
-            LlmClient client = createClient(s);
-            if (client == null) return;
+        LlmClient client = fromJson == null ? createClient(s) : null;
+        if (fromJson == null && client == null) return;
 
-            MetamodelSummary.Summary src = EcoreParser.parse(s.sourceEcore);
-            MetamodelSummary.Summary tgt = EcoreParser.parse(s.targetEcore);
-            extractor = new MappingExtractor(client);
-            extractor.setDebugLog(s.debugLog);
+        final BXAgentService.Session initSession = new BXAgentService.Session(
+            s.sourceSummary, s.targetSummary, null, null, null, null);
+        final Path finalFromJson = fromJson;
+        final LlmClient finalClient = client;
+        BXAgentService.Session tmp = TerminalHelper.spinner(
+            fromJson != null ? "Loading from cache"
+                : "Querying " + TerminalHelper.cyan(client.getProviderName() + " / " + client.getModelName()),
+            () -> SERVICE.extractSpec(initSession, finalClient, finalFromJson, s.description,
+                s.excludedAttributes, s.debugLog));
 
-            final MappingExtractor ext = extractor;
-            final MetamodelSummary.Summary srcFin = src, tgtFin = tgt;
-            s.spec = TerminalHelper.spinner(
-                    "Querying " + TerminalHelper.cyan(client.getProviderName() + " / " + client.getModelName()),
-                    () -> ext.extract(srcFin, tgtFin, s.description));
-            s.rawMappingJson = extractor.getLastRawResponse();
+        s.spec = tmp.spec();
+        s.rawMappingJson = tmp.rawMappingJson();
 
-            // Save response
+        // Save raw LLM response
+        if (s.rawMappingJson != null && fromJson == null) {
             Files.createDirectories(s.outputDir);
             Path debugPath = s.outputDir.resolve("mapping-llm-response.json");
-            if (s.rawMappingJson != null) Files.writeString(debugPath, s.rawMappingJson);
+            Files.writeString(debugPath, s.rawMappingJson);
         }
 
-        // Apply excluded attributes
-        if (!s.excludedAttributes.isEmpty()) {
-            s.spec = injectExcludes(s.spec, s.excludedAttributes);
-        }
-
-        TerminalHelper.success("Type mappings: " + s.spec.typeMappings().size());
+        TerminalHelper.success("Type mappings: "      + s.spec.typeMappings().size());
         TerminalHelper.success("Attribute mappings: " + s.spec.attributeMappings().size());
         TerminalHelper.success("Reference mappings: " + s.spec.referenceMappings().size());
         TerminalHelper.info("Review plan with " + TerminalHelper.cyan("/show plan"));
@@ -410,19 +399,17 @@ public final class ReplCommand {
     private static void cmdBuild(SessionState s) throws Exception {
         if (s.spec == null) { TerminalHelper.error("No plan available. Run /plan first."); return; }
 
-        // Bidirectionality check
+        // Bidirectionality check (CLI uses InteractivePrompter for rich terminal prompts)
         BidirectionalityChecker checker = s.interactive
                 ? new BidirectionalityChecker(new InteractivePrompter())
-                : new BidirectionalityChecker(null);
+                : new BidirectionalityChecker((InteractivePrompter) null);
         MappingModel.TransformationSpec enhanced = checker.resolveUnresolvedMappings(s.spec);
 
-        TransformationCodegen codegen = new TransformationCodegen();
-        s.generatedTransformation = codegen.generateTransformation(enhanced);
-        s.generatedTest           = codegen.generateTest(enhanced);
-
-        Files.createDirectories(s.outputDir);
-        Files.writeString(s.outputDir.resolve(s.generatedTransformation.fileName()), s.generatedTransformation.content());
-        Files.writeString(s.outputDir.resolve(s.generatedTest.fileName()),           s.generatedTest.content());
+        BXAgentService.Session tmp = new BXAgentService.Session(
+            null, null, enhanced, null, null, null);
+        tmp = SERVICE.generate(tmp, s.outputDir);
+        s.generatedTransformation = tmp.generatedTransformation();
+        s.generatedTest           = tmp.generatedTest();
 
         TerminalHelper.success("Generated: " + TerminalHelper.cyan(s.generatedTransformation.fileName())
                 + " (" + s.generatedTransformation.content().lines().count() + " lines)");
@@ -612,18 +599,4 @@ public final class ReplCommand {
         };
     }
 
-    private static MappingModel.TransformationSpec injectExcludes(
-            MappingModel.TransformationSpec spec, java.util.List<String> excludes) {
-        return new MappingModel.TransformationSpec(
-                spec.sourcePackageName(), spec.targetPackageName(), spec.generatedClassName(),
-                spec.typeMappings(), spec.attributeMappings(), spec.referenceMappings(),
-                spec.unresolvedMappings(), spec.transformationOptions(),
-                spec.roleBasedTypeMappings(), spec.backwardConfigs(),
-                excludes,
-                spec.edgeMaterializationMappings(), spec.aggregationMappings(),
-                spec.structuralDeduplicationMappings(), spec.conditionalTypeMappings(),
-                spec.syntheticObjectMappings(),
-                spec.annotationContainerRef(), spec.annotationEClass(), spec.annotationTextAttr(),
-                spec.targetLinkMappings(), spec.sqlTypeMapping(), spec.targetLinkMetamodel());
-    }
 }

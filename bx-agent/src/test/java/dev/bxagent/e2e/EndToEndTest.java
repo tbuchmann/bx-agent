@@ -3,6 +3,7 @@ package dev.bxagent.e2e;
 import dev.bxagent.codegen.GeneratedFile;
 import dev.bxagent.codegen.TransformationCodegen;
 import dev.bxagent.llm.LlmClient;
+import dev.bxagent.cli.InteractivePrompter;
 import dev.bxagent.mapping.BidirectionalityChecker;
 import dev.bxagent.mapping.MappingExtractor;
 import dev.bxagent.mapping.MappingModel;
@@ -172,7 +173,7 @@ class EndToEndTest {
         assertEquals(3, spec.attributeMappings().size());
 
         // Step 3: Check bidirectionality (non-interactive mode)
-        BidirectionalityChecker checker = new BidirectionalityChecker(null);
+        BidirectionalityChecker checker = new BidirectionalityChecker((InteractivePrompter) null);
         MappingModel.TransformationSpec enhancedSpec = checker.resolveUnresolvedMappings(spec);
 
         assertNotNull(enhancedSpec);
@@ -345,7 +346,7 @@ class EndToEndTest {
         MappingModel.TransformationSpec spec = extractor.extract(sourceSummary, targetSummary, null);
 
         // Check bidirectionality
-        BidirectionalityChecker checker = new BidirectionalityChecker(null);
+        BidirectionalityChecker checker = new BidirectionalityChecker((InteractivePrompter) null);
         spec = checker.resolveUnresolvedMappings(spec);
 
         // Generate

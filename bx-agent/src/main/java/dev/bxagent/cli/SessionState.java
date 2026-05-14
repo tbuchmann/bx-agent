@@ -2,6 +2,7 @@ package dev.bxagent.cli;
 
 import dev.bxagent.codegen.GeneratedFile;
 import dev.bxagent.mapping.MappingModel;
+import dev.bxagent.metamodel.MetamodelSummary;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -19,6 +20,8 @@ class SessionState {
     // Metamodels
     Path sourceEcore;
     Path targetEcore;
+    MetamodelSummary.Summary sourceSummary;  // set when /source is loaded
+    MetamodelSummary.Summary targetSummary;  // set when /target is loaded
 
     // Transformation spec
     String description;

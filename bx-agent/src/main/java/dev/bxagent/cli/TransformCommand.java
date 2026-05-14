@@ -1,13 +1,10 @@
 package dev.bxagent.cli;
 
 import dev.bxagent.codegen.GeneratedFile;
-import dev.bxagent.codegen.TransformationCodegen;
 import dev.bxagent.llm.*;
 import dev.bxagent.mapping.BidirectionalityChecker;
-import dev.bxagent.mapping.MappingExtractor;
 import dev.bxagent.mapping.MappingModel;
-import dev.bxagent.metamodel.EcoreParser;
-import dev.bxagent.metamodel.MetamodelSummary;
+import dev.bxagent.service.BXAgentService;
 import dev.bxagent.validation.CompilationValidator;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -108,6 +105,7 @@ public class TransformCommand implements Callable<Integer> {
     public Integer call() {
         try {
             TerminalHelper.printBanner();
+            BXAgentService service = new BXAgentService();
 
             // Step 1: Load configuration
             TerminalHelper.step("[1/7] Loading configuration...");
@@ -116,127 +114,102 @@ public class TransformCommand implements Callable<Integer> {
                 TerminalHelper.error("Please create config/agent.properties (see config/agent.properties.example)");
                 return 1;
             }
-            LlmConfig config = new LlmConfig(configPath.toString());
+            LlmConfig config   = new LlmConfig(configPath.toString());
             LlmClient llmClient = createLlmClient(config);
-            TerminalHelper.success("Provider: " + TerminalHelper.cyan(llmClient.getProviderName() + " / " + llmClient.getModelName()));
+            TerminalHelper.success("Provider: " + TerminalHelper.cyan(
+                llmClient.getProviderName() + " / " + llmClient.getModelName()));
             System.out.println();
 
-            // Step 2: Parse source metamodel
-            TerminalHelper.step("[2/7] Parsing source metamodel: " + TerminalHelper.cyan(sourceEcore.getFileName().toString()));
+            // Steps 2–3: Parse both metamodels
+            TerminalHelper.step("[2/7] Parsing source metamodel: "
+                + TerminalHelper.cyan(sourceEcore.getFileName().toString()));
             if (!Files.exists(sourceEcore)) {
-                TerminalHelper.error("Source .ecore file not found: " + sourceEcore);
-                return 1;
-            }
-            MetamodelSummary.Summary sourceSummary = EcoreParser.parse(sourceEcore);
-            TerminalHelper.success("Package: " + TerminalHelper.cyan(sourceSummary.packageName()));
-            TerminalHelper.success("Classes: " + sourceSummary.classes().size());
-            System.out.println();
-
-            // Step 3: Parse target metamodel
-            TerminalHelper.step("[3/7] Parsing target metamodel: " + TerminalHelper.cyan(targetEcore.getFileName().toString()));
+                TerminalHelper.error("Source .ecore file not found: " + sourceEcore); return 1; }
+            TerminalHelper.step("[3/7] Parsing target metamodel: "
+                + TerminalHelper.cyan(targetEcore.getFileName().toString()));
             if (!Files.exists(targetEcore)) {
-                TerminalHelper.error("Target .ecore file not found: " + targetEcore);
-                return 1;
-            }
-            MetamodelSummary.Summary targetSummary = EcoreParser.parse(targetEcore);
-            TerminalHelper.success("Package: " + TerminalHelper.cyan(targetSummary.packageName()));
-            TerminalHelper.success("Classes: " + targetSummary.classes().size());
+                TerminalHelper.error("Target .ecore file not found: " + targetEcore); return 1; }
+
+            BXAgentService.Session session = service.load(sourceEcore, targetEcore);
+            TerminalHelper.success("Source — Package: "
+                + TerminalHelper.cyan(session.leftSummary().packageName())
+                + ", Classes: " + session.leftSummary().classes().size());
+            TerminalHelper.success("Target — Package: "
+                + TerminalHelper.cyan(session.rightSummary().packageName())
+                + ", Classes: " + session.rightSummary().classes().size());
             System.out.println();
 
-            // Step 4: Extract mapping (from LLM or cached JSON)
-            MappingExtractor extractor = new MappingExtractor(llmClient);
-            extractor.setDebugLog(debugLog);
-            MappingModel.TransformationSpec spec;
+            // Step 4: Extract mapping (LLM or cached JSON)
             if (fromJson != null) {
-                TerminalHelper.step("[4/7] Loading transformation mappings from cached JSON: " + TerminalHelper.cyan(fromJson.toString()));
+                TerminalHelper.step("[4/7] Loading mappings from cached JSON: "
+                    + TerminalHelper.cyan(fromJson.toString()));
                 if (!Files.exists(fromJson)) {
-                    TerminalHelper.error("JSON file not found: " + fromJson);
-                    return 1;
-                }
-                spec = extractor.extractFromJson(Files.readString(fromJson));
-                TerminalHelper.success("Loaded from cache (no LLM call)");
+                    TerminalHelper.error("JSON file not found: " + fromJson); return 1; }
             } else {
                 TerminalHelper.step("[4/7] Extracting transformation mappings via LLM...");
-                final MetamodelSummary.Summary src = sourceSummary, tgt = targetSummary;
-                spec = TerminalHelper.spinner(
-                        "Querying " + TerminalHelper.cyan(llmClient.getProviderName() + " / " + llmClient.getModelName()),
-                        () -> extractor.extract(src, tgt, description));
             }
-            TerminalHelper.success("Type mappings: " + spec.typeMappings().size());
-            TerminalHelper.success("Attribute mappings: " + spec.attributeMappings().size());
-            TerminalHelper.success("Reference mappings: " + spec.referenceMappings().size());
+            final BXAgentService.Session s0 = session;
+            session = TerminalHelper.spinner(
+                fromJson != null ? "Loading from cache"
+                    : "Querying " + TerminalHelper.cyan(
+                        llmClient.getProviderName() + " / " + llmClient.getModelName()),
+                () -> service.extractSpec(s0, llmClient, fromJson, description,
+                    excludedAttributes, debugLog));
 
-            // Save raw LLM response for debugging (skip if loaded from cache)
-            Files.createDirectories(outputDir);
-            String rawResponse = extractor.getLastRawResponse();
-            if (rawResponse != null && fromJson == null) {
+            TerminalHelper.success("Type mappings: "      + session.spec().typeMappings().size());
+            TerminalHelper.success("Attribute mappings: " + session.spec().attributeMappings().size());
+            TerminalHelper.success("Reference mappings: " + session.spec().referenceMappings().size());
+            if (!excludedAttributes.isEmpty())
+                TerminalHelper.success("Excluded attributes: " + excludedAttributes);
+
+            // Save raw LLM response
+            if (session.rawMappingJson() != null && fromJson == null) {
+                Files.createDirectories(outputDir);
                 Path debugPath = outputDir.resolve("mapping-llm-response.json");
-                Files.writeString(debugPath, rawResponse);
+                Files.writeString(debugPath, session.rawMappingJson());
                 TerminalHelper.success("LLM response saved to: " + TerminalHelper.cyan(debugPath.toString()));
+            } else if (fromJson != null) {
+                TerminalHelper.success("Loaded from cache (no LLM call)");
             }
             System.out.println();
 
-            // Inject excluded attributes from CLI into spec (overrides whatever the LLM returned)
-            if (!excludedAttributes.isEmpty()) {
-                spec = new MappingModel.TransformationSpec(
-                    spec.sourcePackageName(), spec.targetPackageName(), spec.generatedClassName(),
-                    spec.typeMappings(), spec.attributeMappings(), spec.referenceMappings(),
-                    spec.unresolvedMappings(), spec.transformationOptions(),
-                    spec.roleBasedTypeMappings(), spec.backwardConfigs(),
-                    excludedAttributes, spec.edgeMaterializationMappings(),
-                    spec.aggregationMappings(),
-                    spec.structuralDeduplicationMappings(),
-                    spec.conditionalTypeMappings(),
-                    spec.syntheticObjectMappings(),
-                    spec.annotationContainerRef(),
-                    spec.annotationEClass(),
-                    spec.annotationTextAttr(),
-                    spec.targetLinkMappings(),
-                    spec.sqlTypeMapping(),
-                    spec.targetLinkMetamodel()
-                );
-                TerminalHelper.success("Excluded attributes: " + excludedAttributes);
-            }
-
-            // Step 5: Check bidirectionality
+            // Step 5: Bidirectionality check (CLI keeps InteractivePrompter for rich terminal prompts)
             TerminalHelper.step("[5/7] Checking bidirectionality...");
             BidirectionalityChecker checker = interactive
                 ? new BidirectionalityChecker(new InteractivePrompter())
-                : new BidirectionalityChecker(null);
-            MappingModel.TransformationSpec enhancedSpec = checker.resolveUnresolvedMappings(spec);
-            long missingBackward = enhancedSpec.attributeMappings().stream()
-                .filter(m -> m.backwardExpression() == null)
-                .count();
-            TerminalHelper.success("Backward mappings: " +
-                (enhancedSpec.attributeMappings().size() - missingBackward) + "/" +
-                enhancedSpec.attributeMappings().size());
+                : new BidirectionalityChecker((InteractivePrompter) null);
+            MappingModel.TransformationSpec enhanced = checker.resolveUnresolvedMappings(session.spec());
+            session = session.withSpec(enhanced);
+            long missingBackward = session.spec().attributeMappings().stream()
+                .filter(m -> m.backwardExpression() == null).count();
+            TerminalHelper.success("Backward mappings: "
+                + (session.spec().attributeMappings().size() - missingBackward) + "/"
+                + session.spec().attributeMappings().size());
             System.out.println();
 
             // Step 6: Generate code
             TerminalHelper.step("[6/7] Generating Java code...");
-            TransformationCodegen codegen = new TransformationCodegen();
-            GeneratedFile transformationFile = codegen.generateTransformation(enhancedSpec);
-            GeneratedFile testFile = codegen.generateTest(enhancedSpec);
-            TerminalHelper.success(TerminalHelper.cyan(transformationFile.fileName()));
-            TerminalHelper.success(TerminalHelper.cyan(testFile.fileName()));
+            final BXAgentService.Session s1 = session;
+            session = service.generate(s1, outputDir);
+            TerminalHelper.success(TerminalHelper.cyan(session.generatedTransformation().fileName()));
+            TerminalHelper.success(TerminalHelper.cyan(session.generatedTest().fileName()));
+            TerminalHelper.success("Written to: " + TerminalHelper.cyan(outputDir.toString()));
             System.out.println();
 
             // Step 7: Validate (optional)
             if (validate) {
                 TerminalHelper.step("[7/7] Validating generated code...");
-                CompilationValidator validator = new CompilationValidator(llmClient);
-                final GeneratedFile fileToValidate = transformationFile;
+                final BXAgentService.Session s2 = session;
                 CompilationValidator.ValidationResult result = TerminalHelper.spinner(
-                        "Compiling " + TerminalHelper.cyan(fileToValidate.fileName()),
-                        () -> validator.validate(fileToValidate));
+                    "Compiling " + TerminalHelper.cyan(session.generatedTransformation().fileName()),
+                    () -> service.validate(s2, llmClient));
 
                 if (result.success()) {
                     TerminalHelper.success("Compilation successful");
-                    if (!result.finalCode().equals(transformationFile.content())) {
-                        transformationFile = new GeneratedFile(
-                            transformationFile.fileName(),
-                            result.finalCode()
-                        );
+                    if (!result.finalCode().equals(session.generatedTransformation().content())) {
+                        GeneratedFile fixed = new GeneratedFile(
+                            session.generatedTransformation().fileName(), result.finalCode());
+                        Files.writeString(outputDir.resolve(fixed.fileName()), fixed.content());
                         TerminalHelper.success("Code was automatically fixed by LLM");
                     }
                 } else {
@@ -252,19 +225,6 @@ public class TransformCommand implements Callable<Integer> {
                 System.out.println();
             }
 
-            // Write files to disk
-            TerminalHelper.step("Writing generated files to: " + TerminalHelper.cyan(outputDir.toString()));
-            Files.createDirectories(outputDir);
-
-            Path transformationPath = outputDir.resolve(transformationFile.fileName());
-            Files.writeString(transformationPath, transformationFile.content());
-            TerminalHelper.success(TerminalHelper.cyan(transformationPath.toString()));
-
-            Path testPath = outputDir.resolve(testFile.fileName());
-            Files.writeString(testPath, testFile.content());
-            TerminalHelper.success(TerminalHelper.cyan(testPath.toString()));
-
-            System.out.println();
             TerminalHelper.separator();
             TerminalHelper.footer("✓ Generation complete!");
             TerminalHelper.separator();
