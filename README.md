@@ -7,6 +7,8 @@
 
 A Java CLI-tool, capable of generating Java Code for a bidirectional and incremental model transformation, based on two `.ecore`-metamodels and a natural language description.
 
+![BXAgent](bxagent.png)
+
 ## Features
 
 - **LLM-supported mapping extraction** - extracts transformation specifications from pairs of metamodels
