@@ -471,12 +471,12 @@ public final class ReplCommand {
     // ── /test ────────────────────────────────────────────────────────────────
 
     private static void cmdTest(SessionState s, String rest) throws Exception {
-        List<String> cmd = new ArrayList<>(List.of("mvn", "test", "--no-transfer-progress"));
+        List<String> cmd = new ArrayList<>(List.of("mvn", "test", "--no-transfer-progress", "-pl", "bx-agent", "-am"));
         if (!rest.isEmpty()) cmd.add("-Dtest=" + rest);
 
         // Hint if generated test hasn't been integrated yet
         if (s.generatedTest != null) {
-            Path integratedTest = Paths.get("src/test/java")
+            Path integratedTest = Paths.get("bx-agent/src/test/java")
                     .resolve(s.generatedTest.fileName());
             if (!Files.exists(integratedTest)) {
                 TerminalHelper.warn("Generated test not found in src/test/java — run /integrate first.");

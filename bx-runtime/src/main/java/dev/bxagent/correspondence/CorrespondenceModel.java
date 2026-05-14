@@ -271,8 +271,10 @@ public class CorrespondenceModel {
                 // Source was deleted — nullify so findDeletedAggregationSourceEntries picks it up
                 if (srcObj != null) entry.eSet(CE_SOURCE_OBJECT, null);
             } else if (!srcMissing && tgtMissing) {
-                fullyStaleEntries.add(entry);
+                // Target was deleted — nullify so findDeletedAggregationTargetEntries picks it up
+                if (tgtObj != null) entry.eSet(CE_TARGET_OBJECT, null);
             } else {
+                // Both missing — truly stale, safe to remove
                 fullyStaleEntries.add(entry);
             }
         }
