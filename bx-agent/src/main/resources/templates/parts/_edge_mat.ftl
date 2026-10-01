@@ -83,7 +83,8 @@
     @SuppressWarnings("unchecked")
     private static void materializeEdgesIncremental(
             Resource sourceModel, Resource targetModel,
-            com.google.common.collect.BiMap<EObject, EObject> corrIndex) {
+            com.google.common.collect.BiMap<EObject, EObject> corrIndex,
+            Resource corrResource) {
 <#list edgeMaterializationMappings as emm>
         // Smart-merge ${emm.edgeType()} objects:
         // keep edges whose ${emm.edgeFromRef()}+${emm.edgeToRef()} still match a source pair (preserves user-set attributes like weight),
@@ -107,6 +108,13 @@
                     if (_tgtEnd != null) _ends.add(_tgtEnd);
                 }
             }
+            // Collect Phase-2 pending targets (source deleted; buildIndex nullified CE_SOURCE_OBJECT).
+            // Must not be treated as stale edge objects — Phase 2 handles cascade deletion.
+            java.util.Set<EObject> _phaseTwoTargets = new java.util.HashSet<>();
+            for (EObject _staleEntry : dev.bxagent.correspondence.CorrespondenceModel.findDeletedSourceEntries(corrResource)) {
+                EObject _phaseTwoTarget = dev.bxagent.correspondence.CorrespondenceModel.getTargetObject(_staleEntry);
+                if (_phaseTwoTarget != null) _phaseTwoTargets.add(_phaseTwoTarget);
+            }
             // Step 2: scan existing edges; keep matches (removes from expected set), delete stale.
             for (EObject _tgtRoot : targetModel.getContents()) {
                 org.eclipse.emf.ecore.EStructuralFeature _cFeat = _tgtRoot.eClass().getEStructuralFeature("${emm.edgeContainerRef()}");
@@ -114,6 +122,8 @@
                 List<EObject> _edgesToDelete = new ArrayList<>();
                 for (EObject _e : (EList<EObject>) _tgtRoot.eGet(_cFeat)) {
                     if (!(_e instanceof ${targetPackageName}.${emm.edgeType()})) continue;
+                    if (corrIndex.containsValue(_e)) continue; // mapped object, not a pure edge object
+                    if (_phaseTwoTargets.contains(_e)) continue; // pending Phase 2 cascade deletion
                     EObject _from = (EObject) _e.eGet(_e.eClass().getEStructuralFeature("${emm.edgeFromRef()}"));
                     EObject _to   = (EObject) _e.eGet(_e.eClass().getEStructuralFeature("${emm.edgeToRef()}"));
                     java.util.Set<EObject> _validEnds = _expected${emm.edgeType()}.get(_from);

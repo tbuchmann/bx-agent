@@ -13,8 +13,10 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Utility class for all operations on the correspondence model.
@@ -211,8 +213,8 @@ public class CorrespondenceModel {
             EObject srcObj = (EObject) entry.eGet(CE_SOURCE_OBJECT);
             EObject tgtObj = (EObject) entry.eGet(CE_TARGET_OBJECT);
 
-            boolean srcMissing = srcObj == null || srcObj.eIsProxy();
-            boolean tgtMissing = tgtObj == null || tgtObj.eIsProxy();
+            boolean srcMissing = srcObj == null || srcObj.eIsProxy() || srcObj.eResource() == null;
+            boolean tgtMissing = tgtObj == null || tgtObj.eIsProxy() || tgtObj.eResource() == null;
 
             if (!srcMissing && !tgtMissing) {
                 // Fully valid entry.
@@ -245,6 +247,32 @@ public class CorrespondenceModel {
     }
 
     /**
+     * Supplementary deletion detection for forward incremental transforms.
+     * EcoreUtil.delete(obj, false) keeps eResource() non-null in some EMF implementations,
+     * so buildIndex's eResource()==null check misses those deletions. This method detects
+     * them by comparing each corr entry's source object against the objects reachable
+     * from sourceResource. Unreachable entries get CE_SOURCE_OBJECT nullified so that
+     * findDeletedSourceEntries() picks them up in Phase 2.
+     * Must be called after Phase 1 (so new objects are in corr) and before Phase 2.
+     */
+    public static void detectAndMarkDeletedSources(Resource corrResource, Resource sourceResource) {
+        if (corrResource.getContents().isEmpty()) return;
+        Set<EObject> reachable = new HashSet<>();
+        sourceResource.getAllContents().forEachRemaining(reachable::add);
+        EObject model = corrResource.getContents().get(0);
+        @SuppressWarnings("unchecked")
+        EList<EObject> entries = (EList<EObject>) model.eGet(CM_ENTRIES);
+        for (EObject entry : entries) {
+            if (Boolean.TRUE.equals(entry.eGet(CE_IS_AGGREGATION))) continue;
+            if (Boolean.TRUE.equals(entry.eGet(CE_IS_STRUCTURAL_DEDUP))) continue;
+            EObject srcObj = (EObject) entry.eGet(CE_SOURCE_OBJECT);
+            if (srcObj != null && !srcObj.eIsProxy() && !reachable.contains(srcObj)) {
+                entry.eSet(CE_SOURCE_OBJECT, null);
+            }
+        }
+    }
+
+    /**
      * Builds a Map (source→target, many-to-one allowed) from aggregation entries only.
      * Also handles stale proxy cleanup for aggregation entries.
      */
@@ -262,8 +290,8 @@ public class CorrespondenceModel {
             EObject srcObj = (EObject) entry.eGet(CE_SOURCE_OBJECT);
             EObject tgtObj = (EObject) entry.eGet(CE_TARGET_OBJECT);
 
-            boolean srcMissing = srcObj == null || srcObj.eIsProxy();
-            boolean tgtMissing = tgtObj == null || tgtObj.eIsProxy();
+            boolean srcMissing = srcObj == null || srcObj.eIsProxy() || srcObj.eResource() == null;
+            boolean tgtMissing = tgtObj == null || tgtObj.eIsProxy() || tgtObj.eResource() == null;
 
             if (!srcMissing && !tgtMissing) {
                 index.put(srcObj, tgtObj);
@@ -297,7 +325,8 @@ public class CorrespondenceModel {
             if (!Boolean.TRUE.equals(entry.eGet(CE_IS_AGGREGATION))) continue;
             EObject srcObj = (EObject) entry.eGet(CE_SOURCE_OBJECT);
             EObject tgtObj = (EObject) entry.eGet(CE_TARGET_OBJECT);
-            if (srcObj != null && !srcObj.eIsProxy() && tgtObj != null && !tgtObj.eIsProxy()) {
+            if (srcObj != null && !srcObj.eIsProxy() && srcObj.eResource() != null
+                    && tgtObj != null && !tgtObj.eIsProxy() && tgtObj.eResource() != null) {
                 index.computeIfAbsent(tgtObj, k -> new ArrayList<>()).add(srcObj);
             }
         }
@@ -532,8 +561,8 @@ public class CorrespondenceModel {
             if (!Boolean.TRUE.equals(entry.eGet(CE_IS_STRUCTURAL_DEDUP))) continue;
             EObject srcObj = (EObject) entry.eGet(CE_SOURCE_OBJECT);
             EObject tgtObj = (EObject) entry.eGet(CE_TARGET_OBJECT);
-            boolean srcMissing = srcObj == null || srcObj.eIsProxy();
-            boolean tgtMissing = tgtObj == null || tgtObj.eIsProxy();
+            boolean srcMissing = srcObj == null || srcObj.eIsProxy() || srcObj.eResource() == null;
+            boolean tgtMissing = tgtObj == null || tgtObj.eIsProxy() || tgtObj.eResource() == null;
             if (!srcMissing && !tgtMissing) {
                 index.put(srcObj, tgtObj);
             } else if (srcMissing && !tgtMissing) {
@@ -559,7 +588,8 @@ public class CorrespondenceModel {
             if (!Boolean.TRUE.equals(entry.eGet(CE_IS_STRUCTURAL_DEDUP))) continue;
             EObject srcObj = (EObject) entry.eGet(CE_SOURCE_OBJECT);
             EObject tgtObj = (EObject) entry.eGet(CE_TARGET_OBJECT);
-            if (srcObj != null && !srcObj.eIsProxy() && tgtObj != null && !tgtObj.eIsProxy()) {
+            if (srcObj != null && !srcObj.eIsProxy() && srcObj.eResource() != null
+                    && tgtObj != null && !tgtObj.eIsProxy() && tgtObj.eResource() != null) {
                 index.computeIfAbsent(tgtObj, k -> new ArrayList<>()).add(srcObj);
             }
         }
@@ -580,7 +610,7 @@ public class CorrespondenceModel {
             if (!Boolean.TRUE.equals(entry.eGet(CE_IS_STRUCTURAL_DEDUP))) continue;
             EObject tgtObj = (EObject) entry.eGet(CE_TARGET_OBJECT);
             String srcFp = (String) entry.eGet(CE_SOURCE_FINGERPRINT);
-            if (tgtObj != null && !tgtObj.eIsProxy() && srcFp != null && !srcFp.isEmpty()) {
+            if (tgtObj != null && !tgtObj.eIsProxy() && tgtObj.eResource() != null && srcFp != null && !srcFp.isEmpty()) {
                 index.putIfAbsent(srcFp, tgtObj);
             }
         }
@@ -599,6 +629,24 @@ public class CorrespondenceModel {
                 .filter(e -> Boolean.TRUE.equals(e.eGet(CE_IS_STRUCTURAL_DEDUP))
                           && e.eGet(CE_SOURCE_OBJECT) == sourceObj)
                 .findFirst();
+    }
+
+    /**
+     * Builds a Map&lt;sourceObj, CE&gt; for all structural dedup CEs — O(1) lookup alternative to
+     * repeated findStructuralDedupBySource calls during tree walks (avoids O(n²) scan per node).
+     */
+    public static java.util.Map<EObject, EObject> buildStructuralDedupBySourceIndex(Resource corrResource) {
+        if (corrResource.getContents().isEmpty()) return new java.util.HashMap<>();
+        EObject model = corrResource.getContents().get(0);
+        @SuppressWarnings("unchecked")
+        EList<EObject> entries = (EList<EObject>) model.eGet(CM_ENTRIES);
+        java.util.Map<EObject, EObject> result = new java.util.HashMap<>();
+        for (EObject entry : entries) {
+            if (!Boolean.TRUE.equals(entry.eGet(CE_IS_STRUCTURAL_DEDUP))) continue;
+            EObject src = (EObject) entry.eGet(CE_SOURCE_OBJECT);
+            if (src != null) result.put(src, entry);
+        }
+        return result;
     }
 
     /**

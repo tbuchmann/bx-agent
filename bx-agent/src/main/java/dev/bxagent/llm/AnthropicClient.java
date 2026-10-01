@@ -1,9 +1,13 @@
 package dev.bxagent.llm;
 
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.anthropic.AnthropicChatModel;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.response.ChatResponse;
 
 import java.time.Duration;
+import java.util.List;
 
 /**
  * LLM client implementation for Anthropic Claude using Langchain4j.
@@ -12,6 +16,8 @@ public class AnthropicClient implements LlmClient {
 
     private final ChatModel model;
     private final String modelName;
+    private TokenUsage lastUsage        = TokenUsage.ZERO;
+    private TokenUsage accumulatedUsage = TokenUsage.ZERO;
 
     public AnthropicClient(LlmConfig config) {
         this.modelName = config.getModel();
@@ -35,22 +41,34 @@ public class AnthropicClient implements LlmClient {
     @Override
     public String complete(String systemPrompt, String userMessage) {
         try {
-            // Anthropic supports system prompts natively via messages API
-            // For now, we combine them similar to Ollama
-            String fullPrompt = systemPrompt + "\n\n" + userMessage;
-            return model.chat(fullPrompt);
+            ChatResponse response = model.chat(
+                List.of(SystemMessage.from(systemPrompt), UserMessage.from(userMessage))
+            );
+            var tu = response.tokenUsage();
+            int in  = (tu != null && tu.inputTokenCount()  != null) ? tu.inputTokenCount()  : 0;
+            int out = (tu != null && tu.outputTokenCount() != null) ? tu.outputTokenCount() : 0;
+            lastUsage        = new TokenUsage(in, out);
+            accumulatedUsage = accumulatedUsage.add(lastUsage);
+            System.out.printf("[tokens] %s  input=%d  output=%d  total=%d  (session: %d)%n",
+                modelName, in, out, in + out, accumulatedUsage.total());
+            return response.aiMessage().text();
         } catch (Exception e) {
             throw new RuntimeException("Anthropic request failed: " + e.getMessage(), e);
         }
     }
 
     @Override
-    public String getProviderName() {
-        return "anthropic";
-    }
+    public String getProviderName() { return "anthropic"; }
 
     @Override
-    public String getModelName() {
-        return modelName;
-    }
+    public String getModelName() { return modelName; }
+
+    @Override
+    public TokenUsage getLastTokenUsage() { return lastUsage; }
+
+    @Override
+    public TokenUsage getAccumulatedTokenUsage() { return accumulatedUsage; }
+
+    @Override
+    public void resetAccumulatedTokenUsage() { accumulatedUsage = TokenUsage.ZERO; }
 }

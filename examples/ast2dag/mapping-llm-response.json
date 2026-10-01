@@ -1,0 +1,56 @@
+{
+  "sourcePackageName": "ast",
+  "targetPackageName": "dag",
+  "generatedClassName": "Ast2DagTransformation",
+  "typeMappings": [
+    {
+      "sourceType": "Model",
+      "targetType": "Model",
+      "sourceKeyAttributes": [],
+      "targetKeyAttributes": [],
+      "backwardCondition": null
+    }
+  ],
+  "attributeMappings": [],
+  "referenceMappings": [],
+  "unresolvedMappings": [],
+  "transformationOptions": [],
+  "roleBasedTypeMappings": [],
+  "backwardConfigs": [],
+  "excludedAttributes": [],
+  "edgeMaterializationMappings": [],
+  "aggregationMappings": [],
+  "structuralDeduplicationMappings": [
+    {
+      "abstractSourceType": "Expression",
+      "abstractTargetType": "Expression",
+      "concreteTypes": [
+        {
+          "sourceType": "Operator",
+          "targetType": "Operator",
+          "keyAttributes": ["op"],
+          "childRefs": ["left", "right"]
+        },
+        {
+          "sourceType": "Variable",
+          "targetType": "Variable",
+          "keyAttributes": ["name"],
+          "childRefs": []
+        },
+        {
+          "sourceType": "Number",
+          "targetType": "Number",
+          "keyAttributes": ["value"],
+          "childRefs": []
+        }
+      ],
+      "sourceContainerType": "Model",
+      "sourceContainerRef": "expr",
+      "sourceContainerRefIsMany": false,
+      "targetContainerType": "Model",
+      "targetContainerRef": "exprs",
+      "sourceKeyAttributes": [],
+      "targetKeyAttributes": []
+    }
+  ]
+}

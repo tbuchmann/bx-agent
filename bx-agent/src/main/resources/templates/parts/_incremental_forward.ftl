@@ -27,15 +27,22 @@
             }
         }
 
+        // Build O(1) source→corrEntry index to avoid O(n) findBySource scan inside Phase 1 loop.
+        Map<EObject, EObject> entryIndex = new HashMap<>();
+        for (EObject _e : CorrespondenceModel.getAllEntries(corrResource)) {
+            EObject _src = CorrespondenceModel.getSourceObject(_e);
+            if (_src != null) entryIndex.put(_src, _e);
+        }
+
         // Phase 1: Regular typed objects (TypeMappings only).
         // Role-based source types (e.g. FamilyMember) are handled exclusively in Phase 1b
         // to avoid consuming their change signal before mapRoleBasedTypesIncremental runs.
         for (EObject srcObj : allSourceObjects(sourceModel)) {
             if (!isCoveredByTypeMappingSource(srcObj)) continue;
             String currentFp = computeFingerprint(srcObj);
-            Optional<EObject> existingEntry = CorrespondenceModel.findBySource(corrResource, srcObj);
+            EObject existingEntry = entryIndex.get(srcObj);
 
-            if (existingEntry.isEmpty()) {
+            if (existingEntry == null) {
                 // New object: create and add to target containment
                 EObject newTarget = createNewTargetObject(srcObj, options);
                 if (newTarget != null) {
@@ -55,7 +62,7 @@
                 // Prefer the stored target containment role so cross-named containment features
                 // (e.g. source "eClassifiers" → target "ownedTables") are matched correctly.
                 if (targetObj != null && targetObj.eResource() == null) {
-                    String _storedTgtRole = CorrespondenceModel.getTargetContainmentRole(existingEntry.get());
+                    String _storedTgtRole = CorrespondenceModel.getTargetContainmentRole(existingEntry);
                     if (_storedTgtRole != null && !_storedTgtRole.isEmpty()) {
                         EObject _srcParent = srcObj.eContainer();
                         EObject _tgtParent = _srcParent != null ? corrIndex.get(_srcParent) : null;
@@ -79,20 +86,17 @@
                     }
                 }
                 String _currentSrcRole = srcObj.eContainmentFeature() != null ? srcObj.eContainmentFeature().getName() : "";
-                String _storedSrcRole  = CorrespondenceModel.getSourceContainmentRole(existingEntry.get());
+                String _storedSrcRole  = CorrespondenceModel.getSourceContainmentRole(existingEntry);
                 if (_storedSrcRole == null) _storedSrcRole = "";
                 if (!_currentSrcRole.equals(_storedSrcRole)) {
-                    // Containment role changed for a TypeMapping object.
-                    // Update the stored role; for role-based types this is handled in Phase 1b.
-                    CorrespondenceModel.updateSourceContainmentRole(existingEntry.get(), _currentSrcRole);
+                    CorrespondenceModel.updateSourceContainmentRole(existingEntry, _currentSrcRole);
                 }
-                String storedFp = CorrespondenceModel.getFingerprint(existingEntry.get());
+                String storedFp = CorrespondenceModel.getFingerprint(existingEntry);
                 if (!currentFp.equals(storedFp)) {
                     if (targetObj != null) {
                         updateTargetAttributes(srcObj, targetObj, options);
-                        CorrespondenceModel.updateFingerprint(existingEntry.get(), currentFp);
-                        // Also update target fingerprint so backward direction sees a consistent baseline.
-                        CorrespondenceModel.updateTargetFingerprint(existingEntry.get(), computeFingerprintBack(targetObj));
+                        CorrespondenceModel.updateFingerprint(existingEntry, currentFp);
+                        CorrespondenceModel.updateTargetFingerprint(existingEntry, computeFingerprintBack(targetObj));
                         _updated.add(targetObj);
                     }
                 }
@@ -110,7 +114,7 @@
 <#if edgeMaterializationMappings?has_content>
 
         // Phase 1c: Edge materialization (incremental)
-        materializeEdgesIncremental(sourceModel, existingTarget, corrIndex);
+        materializeEdgesIncremental(sourceModel, existingTarget, corrIndex, corrResource);
 </#if>
 <#if aggregationMappings?has_content>
 
@@ -129,8 +133,88 @@
     </#list>
 </#if>
 <#if conditionalTypeMappings?has_content>
+        createAndMapCTMObjectsIncremental(sourceModel, existingTarget, corrResource, corrIndex, options, _created, _updated);
+</#if>
 
+<#if hasNestedSom>
+        // Phase 1.5: Nested synthetic objects (incremental — iterate corrIndex for mapped sources)
+        for (EObject _nsynSrc : new java.util.ArrayList<>(corrIndex.keySet())) {
+            _createNestedSyntheticObjects(_nsynSrc, corrIndex);
+        }
+</#if>
+<#if targetLinkMappings?has_content && targetLinkMetamodel??>
+        // Phase 1.6: Target link generation (incremental)
+        _createTargetLinks(corrIndex, existingTarget);
+</#if>
+        // Supplement deletion detection: EcoreUtil.delete(obj,false) keeps eResource() non-null
+        // in some EMF implementations, so buildIndex misses those. Detect them by comparing
+        // corr entries against all objects reachable from the current source model.
+        CorrespondenceModel.detectAndMarkDeletedSources(corrResource, sourceModel);
+
+        // Phase 2: Detect and handle deleted source objects
+        // CE_SOURCE_OBJECT is null either because EMF nullified it or because
+        // detectAndMarkDeletedSources() just nullified it above.
+        List<EObject> _deletedFwdEntries = new ArrayList<>(CorrespondenceModel.findDeletedSourceEntries(corrResource));
+        // Notify post-processor before actual deletion (CASCADE only) so derived structure can be repaired first
+        if (ctx.getDeletionPolicy() == TransformationContext.DeletionPolicy.CASCADE) {
+            List<EObject> _toDelete = new ArrayList<>();
+            for (EObject _corrEntry : _deletedFwdEntries) {
+                EObject targetObj = CorrespondenceModel.getTargetObject(_corrEntry);
+                if (targetObj != null) _toDelete.add(targetObj);
+            }
+            postProcessor.beforeDeletions(_toDelete);
+        }
+        for (EObject _corrEntry : _deletedFwdEntries) {
+            EObject targetObj = CorrespondenceModel.getTargetObject(_corrEntry);
+            switch (ctx.getDeletionPolicy()) {
+                case CASCADE -> {
+                    if (targetObj != null) {
+                        EcoreUtil.delete(targetObj, true);
+                    }
+                    CorrespondenceModel.removeCorrespondenceEntry(corrResource, _corrEntry);
+                }
+                case ORPHAN -> CorrespondenceModel.removeCorrespondenceEntry(corrResource, _corrEntry);
+                case TOMBSTONE -> CorrespondenceModel.markOrphaned(_corrEntry);
+            }
+        }
+
+<#if targetLinkMappings?has_content && targetLinkMetamodel??>
+        // Phase 2.5: Remove TLM link objects (FKs) whose slot (column) was nullified by Phase 2 deletions.
+        // EcoreUtil.delete(slot, true) nullifies FK.column cross-references but leaves the FK in ownedForeignKeys.
+        {
+            final String _c2Nodes = "${targetLinkMetamodel.nodeContainerFeature()}";
+            final String _c2Links = "${targetLinkMetamodel.linkContainerFeature()}";
+            final String _c2Src   = "${targetLinkMetamodel.linkSourceFeature()}";
+            for (EObject _c2Root : existingTarget.getContents()) {
+                for (EObject _c2Node : new ArrayList<>(_tlmList(_c2Root, _c2Nodes))) {
+                    _tlmList(_c2Node, _c2Links).removeIf(lk -> _tlmGetRef(lk, _c2Src) == null);
+                }
+            }
+        }
+</#if>
+        // Phase 3: Resolve cross-references incrementally using corrIndex as lookup.
+        // Must run after Phase 1 so all new objects are in corrIndex.
+        // Iterates all source objects (not just changed ones) because cross-reference changes
+        // are not captured by the fingerprint.
+        resolveReferencesIncremental(sourceModel, existingTarget, corrIndex);
+
+        CorrespondenceModel.saveAndUpdateTimestamp(corrResource);
+
+        postProcessor.afterTransform(sourceModel, existingTarget, corrIndex, _created, _updated);
+    }
+
+<#if conditionalTypeMappings?has_content>
+    static void createAndMapCTMObjectsIncremental(
+            Resource sourceModel, Resource existingTarget, Resource corrResource,
+            com.google.common.collect.BiMap<EObject, EObject> corrIndex,
+            Options options,
+            java.util.List<EObject> _created, java.util.List<EObject> _updated) {
         // Phase 1f: Conditional type mappings (incremental)
+        Map<EObject, EObject> entryIndex = new HashMap<>();
+        for (EObject _e : CorrespondenceModel.getAllEntries(corrResource)) {
+            EObject _src = CorrespondenceModel.getSourceObject(_e);
+            if (_src != null) entryIndex.put(_src, _e);
+        }
         for (EObject _ctmOwner : allSourceObjects(sourceModel)) {
     <#list conditionalTypeMappings as ctm>
             if (_ctmOwner instanceof ${sourcePackageName}.${ctm.sourceContainerOwnerType()} _ctmParentObj) {
@@ -145,8 +229,8 @@
                 for (Object _ctmItem : _ctmItems) {
                     if (!(_ctmItem instanceof ${sourcePackageName}.${ctm.sourceType()} _ctmSrc)) continue;
                     String _ctmFp = computeFingerprint((EObject) _ctmItem);
-                    Optional<EObject> _ctmExistingEntry = CorrespondenceModel.findBySource(corrResource, (EObject) _ctmItem);
-                    if (_ctmExistingEntry.isEmpty()) {
+                    EObject _ctmExistingEntry = entryIndex.get((EObject) _ctmItem);
+                    if (_ctmExistingEntry == null) {
                         // New CTM object: dispatch and create
                         EObject _ctmNewTarget = null;
         <#list ctm.branches() as branch>
@@ -222,7 +306,7 @@
                         // Known CTM object: check fingerprint and re-attach if detached
                         EObject _ctmTargetObj = corrIndex.get((EObject) _ctmItem);
                         if (_ctmTargetObj != null && _ctmTargetObj.eResource() == null) {
-                            String _ctmStoredTgtRole = CorrespondenceModel.getTargetContainmentRole(_ctmExistingEntry.get());
+                            String _ctmStoredTgtRole = CorrespondenceModel.getTargetContainmentRole(_ctmExistingEntry);
                             if (_ctmStoredTgtRole != null && !_ctmStoredTgtRole.isEmpty()) {
                                 EObject _ctmTgtParent = corrIndex.get(_ctmOwner);
                                 if (_ctmTgtParent != null) {
@@ -256,7 +340,7 @@
                                     _ctmMappedParent.eSet(_ctmMoveContFeat, _ctmTargetObj);
                                 }
                             }
-                            CorrespondenceModel.updateTargetContainmentRole(_ctmExistingEntry.get(),
+                            CorrespondenceModel.updateTargetContainmentRole(_ctmExistingEntry,
                                 _ctmTargetObj.eContainmentFeature() != null ? _ctmTargetObj.eContainmentFeature().getName() : "");
                         }
             </#if>
@@ -273,9 +357,9 @@
                         if (!_ctmConditionStillMatches && _ctmTargetObj != null) {
                             EcoreUtil.delete(_ctmTargetObj, true);
                             corrIndex.remove((EObject) _ctmItem);
-                            CorrespondenceModel.removeCorrespondenceEntry(corrResource, _ctmExistingEntry.get());
+                            CorrespondenceModel.removeCorrespondenceEntry(corrResource, _ctmExistingEntry);
                         } else if (_ctmConditionStillMatches) {
-                            String _ctmStoredFp = CorrespondenceModel.getFingerprint(_ctmExistingEntry.get());
+                            String _ctmStoredFp = CorrespondenceModel.getFingerprint(_ctmExistingEntry);
                             if (!_ctmFp.equals(_ctmStoredFp) && _ctmTargetObj != null) {
                                 // Update attributes for changed CTM object
         <#list ctm.branches() as branch>
@@ -295,8 +379,8 @@
                                 }
             </#if>
         </#list>
-                                CorrespondenceModel.updateFingerprint(_ctmExistingEntry.get(), _ctmFp);
-                                CorrespondenceModel.updateTargetFingerprint(_ctmExistingEntry.get(), computeFingerprintBack(_ctmTargetObj));
+                                CorrespondenceModel.updateFingerprint(_ctmExistingEntry, _ctmFp);
+                                CorrespondenceModel.updateTargetFingerprint(_ctmExistingEntry, computeFingerprintBack(_ctmTargetObj));
                                 _updated.add(_ctmTargetObj);
                             }
                         }
@@ -305,69 +389,8 @@
             }
     </#list>
         }
-</#if>
-
-<#if hasNestedSom>
-        // Phase 1.5: Nested synthetic objects (incremental — iterate corrIndex for mapped sources)
-        for (EObject _nsynSrc : new java.util.ArrayList<>(corrIndex.keySet())) {
-            _createNestedSyntheticObjects(_nsynSrc, corrIndex);
-        }
-</#if>
-<#if targetLinkMappings?has_content && targetLinkMetamodel??>
-        // Phase 1.6: Target link generation (incremental)
-        _createTargetLinks(corrIndex, existingTarget);
-</#if>
-        // Phase 2: Detect and handle deleted source objects
-        // EMF nullifies CE_SOURCE_OBJECT when the object is deleted from the resource,
-        // so we scan for entries with null sourceObject rather than comparing allSourceObjects with corrIndex.
-        List<EObject> _deletedFwdEntries = new ArrayList<>(CorrespondenceModel.findDeletedSourceEntries(corrResource));
-        // Notify post-processor before actual deletion (CASCADE only) so derived structure can be repaired first
-        if (ctx.getDeletionPolicy() == TransformationContext.DeletionPolicy.CASCADE) {
-            List<EObject> _toDelete = new ArrayList<>();
-            for (EObject _corrEntry : _deletedFwdEntries) {
-                EObject targetObj = CorrespondenceModel.getTargetObject(_corrEntry);
-                if (targetObj != null) _toDelete.add(targetObj);
-            }
-            postProcessor.beforeDeletions(_toDelete);
-        }
-        for (EObject _corrEntry : _deletedFwdEntries) {
-            EObject targetObj = CorrespondenceModel.getTargetObject(_corrEntry);
-            switch (ctx.getDeletionPolicy()) {
-                case CASCADE -> {
-                    if (targetObj != null) {
-                        EcoreUtil.delete(targetObj, true);
-                    }
-                    CorrespondenceModel.removeCorrespondenceEntry(corrResource, _corrEntry);
-                }
-                case ORPHAN -> CorrespondenceModel.removeCorrespondenceEntry(corrResource, _corrEntry);
-                case TOMBSTONE -> CorrespondenceModel.markOrphaned(_corrEntry);
-            }
-        }
-
-<#if targetLinkMappings?has_content && targetLinkMetamodel??>
-        // Phase 2.5: Remove TLM link objects (FKs) whose slot (column) was nullified by Phase 2 deletions.
-        // EcoreUtil.delete(slot, true) nullifies FK.column cross-references but leaves the FK in ownedForeignKeys.
-        {
-            final String _c2Nodes = "${targetLinkMetamodel.nodeContainerFeature()}";
-            final String _c2Links = "${targetLinkMetamodel.linkContainerFeature()}";
-            final String _c2Src   = "${targetLinkMetamodel.linkSourceFeature()}";
-            for (EObject _c2Root : existingTarget.getContents()) {
-                for (EObject _c2Node : new ArrayList<>(_tlmList(_c2Root, _c2Nodes))) {
-                    _tlmList(_c2Node, _c2Links).removeIf(lk -> _tlmGetRef(lk, _c2Src) == null);
-                }
-            }
-        }
-</#if>
-        // Phase 3: Resolve cross-references incrementally using corrIndex as lookup.
-        // Must run after Phase 1 so all new objects are in corrIndex.
-        // Iterates all source objects (not just changed ones) because cross-reference changes
-        // are not captured by the fingerprint.
-        resolveReferencesIncremental(sourceModel, existingTarget, corrIndex);
-
-        CorrespondenceModel.saveAndUpdateTimestamp(corrResource);
-
-        postProcessor.afterTransform(sourceModel, existingTarget, corrIndex, _created, _updated);
     }
+</#if>
 
     // ════════════════════════════════════════════════════════════════════════
     // Batch Backward Path

@@ -447,6 +447,9 @@
             com.google.common.collect.BiMap<EObject, EObject> corrIndex,
             List<EObject> _createdBack, List<EObject> _updatedBack) {
 
+        // Pre-build source→CE index for O(1) lookup in tree walk (avoids O(n²) scan per node)
+        java.util.Map<EObject, EObject> _sdBySource = CorrespondenceModel.buildStructuralDedupBySourceIndex(corrResource);
+
         for (EObject _tgtObj : allSourceObjects(targetModel)) {
             if (!(_tgtObj instanceof ${targetPackageName}.${sdm.targetContainerType()} _tgtContainer)) continue;
             EObject _srcContainerObj = corrIndex.inverse().get(_tgtContainer);
@@ -493,7 +496,7 @@
 
             // Sync DAG tree to AST tree
             EObject _newAstRoot = _syncDagToAst${sdm.abstractSourceType()}(
-                    _dagRoot, _astRoot, corrResource, _createdBack, _updatedBack);
+                    _dagRoot, _astRoot, corrResource, _sdBySource, _createdBack, _updatedBack);
 
             // Update source container's root ref if changed
             if (_newAstRoot != _astRoot) {
@@ -528,11 +531,12 @@
     private static EObject _syncDagToAst${sdm.abstractSourceType()}(
             EObject dagNode, EObject astNode,
             Resource corrResource,
+            java.util.Map<EObject, EObject> _sdBySource,
             List<EObject> _created, List<EObject> _updated) {
 
         if (dagNode == null) {
             if (astNode != null) {
-                _deleteStructuralDedupSubtree${sdm.abstractSourceType()}(astNode, corrResource);
+                _deleteStructuralDedupSubtree${sdm.abstractSourceType()}(astNode, corrResource, _sdBySource);
             }
             return null;
         }
@@ -546,9 +550,23 @@
         }
 </#list>
 
+        // Identity check: even if types match, verify this is the SAME DAG node that was
+        // previously mapped to this AST position. A new DAG node at the same position
+        // (e.g. old deleted and new created) must replace the AST node, not update it in place,
+        // otherwise the AST node keeps stale attributes (e.g. incrementalID from the old node).
+        if (_typesMatch && astNode != null) {
+            Optional<EObject> _ceOpt = Optional.ofNullable(_sdBySource.get(astNode));
+            if (_ceOpt.isPresent()) {
+                EObject _storedDagNode = CorrespondenceModel.getTargetObject(_ceOpt.get());
+                if (_storedDagNode != dagNode) {
+                    _typesMatch = false;
+                }
+            }
+        }
+
         if (!_typesMatch) {
             if (astNode != null) {
-                _deleteStructuralDedupSubtree${sdm.abstractSourceType()}(astNode, corrResource);
+                _deleteStructuralDedupSubtree${sdm.abstractSourceType()}(astNode, corrResource, _sdBySource);
             }
             return _createAstNodeFromDag${sdm.abstractSourceType()}(dagNode, corrResource, _created);
         }
@@ -587,7 +605,7 @@
         if (_anyKeyAttrChanged) _updated.add(astNode);
 
         // Update CE target fingerprint
-        CorrespondenceModel.findStructuralDedupBySource(corrResource, astNode).ifPresent(ce ->
+        Optional.ofNullable(_sdBySource.get(astNode)).ifPresent(ce ->
                 CorrespondenceModel.updateTargetFingerprint(ce, computeFingerprintBack(dagNode)));
 
 <#list sdm.concreteTypes() as ct>
@@ -604,7 +622,7 @@
                     EObject _dagChild = (EObject) dagNode.eGet(_dagRef);
                     EObject _astChild = (EObject) astNode.eGet(_astRef);
                     EObject _newAstChild = _syncDagToAst${sdm.abstractSourceType()}(
-                            _dagChild, _astChild, corrResource, _created, _updated);
+                            _dagChild, _astChild, corrResource, _sdBySource, _created, _updated);
                     if (_newAstChild != _astChild) {
                         astNode.eSet(_astRef, _newAstChild);
                     }
@@ -663,7 +681,8 @@
      * Recursively deletes an AST subtree, removing structural dedup CEs before deletion.
      */
     private static void _deleteStructuralDedupSubtree${sdm.abstractSourceType()}(
-            EObject astNode, Resource corrResource) {
+            EObject astNode, Resource corrResource,
+            java.util.Map<EObject, EObject> _sdBySource) {
 
         if (astNode == null) return;
 
@@ -677,7 +696,7 @@
                         astNode.eClass().getEStructuralFeature("${childRef}");
                 if (_astRef != null) {
                     EObject _child = (EObject) astNode.eGet(_astRef);
-                    _deleteStructuralDedupSubtree${sdm.abstractSourceType()}(_child, corrResource);
+                    _deleteStructuralDedupSubtree${sdm.abstractSourceType()}(_child, corrResource, _sdBySource);
                 }
             }
 </#list>
@@ -686,7 +705,7 @@
 </#list>
 
         // Remove CE for this node before deletion (EMF nullifies refs on EcoreUtil.delete)
-        CorrespondenceModel.findStructuralDedupBySource(corrResource, astNode)
+        Optional.ofNullable(_sdBySource.get(astNode))
                 .ifPresent(ce -> CorrespondenceModel.removeCorrespondenceEntry(corrResource, ce));
 
         EcoreUtil.delete(astNode, true);

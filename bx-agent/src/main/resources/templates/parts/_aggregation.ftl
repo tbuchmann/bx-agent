@@ -56,6 +56,13 @@
             java.util.Map<EObject, EObject> aggregationIndex,
             List<EObject> _created, List<EObject> _updated) {
 
+        // Build O(1) source→corrEntry index to avoid O(n) findBySource scan inside loops.
+        Map<EObject, EObject> entryIndex = new HashMap<>();
+        for (EObject _e : CorrespondenceModel.getAllEntries(corrResource)) {
+            EObject _src = CorrespondenceModel.getSourceObject(_e);
+            if (_src != null) entryIndex.put(_src, _e);
+        }
+
         // Step 1: build current groups, organized by (sourceParent, groupByValue)
         java.util.Map<${sourcePackageName}.${agg.sourceContainerType()},
                 java.util.Map<String, java.util.List<${sourcePackageName}.${agg.sourceType()}>>> _groupsByParent
@@ -82,6 +89,8 @@
         }
 
         // Step 3: process each current group
+        // Capture pre-step-3 snapshot so Step 4 can identify which targets were previously tracked.
+        java.util.Set<EObject> _initialAggTargets = new java.util.HashSet<>(aggregationIndex.values());
         java.util.Set<${targetPackageName}.${agg.targetType()}> _processedTargets = new java.util.HashSet<>();
         for (java.util.Map.Entry<${sourcePackageName}.${agg.sourceContainerType()},
                 java.util.Map<String, java.util.List<${sourcePackageName}.${agg.sourceType()}>>> _parentEntry
@@ -121,12 +130,12 @@
                             aggregationIndex.put(_srcElem, _tgtElem);
                         } else if (_indexedTarget != _tgtElem) {
                             // Source element moved from another group (value changed)
-                            Optional<EObject> _oldCE = CorrespondenceModel.findBySource(corrResource, _srcElem);
-                            _oldCE.ifPresent(ce -> {
-                                CorrespondenceModel.updateTargetObject(ce, _tgtElem, "${agg.targetType()}");
-                                CorrespondenceModel.updateFingerprint(ce, computeFingerprint(_srcElem));
-                                CorrespondenceModel.updateTargetFingerprint(ce, computeFingerprintBack(_tgtElem));
-                            });
+                            EObject _oldCE = entryIndex.get(_srcElem);
+                            if (_oldCE != null) {
+                                CorrespondenceModel.updateTargetObject(_oldCE, _tgtElem, "${agg.targetType()}");
+                                CorrespondenceModel.updateFingerprint(_oldCE, computeFingerprint(_srcElem));
+                                CorrespondenceModel.updateTargetFingerprint(_oldCE, computeFingerprintBack(_tgtElem));
+                            }
                             aggregationIndex.put(_srcElem, _tgtElem);
                         }
                         // else: already correctly indexed for this target
@@ -144,10 +153,45 @@
 
                     // Whole-group rename only if ALL sources of the old target moved to this new group.
                     ${targetPackageName}.${agg.targetType()} _reuseTarget = null;
+                    boolean _groupHandled = false;  // true when targetRenamedOnly — skip True new group
                     if (_allFromSameOldTarget && !_processedTargets.contains(_commonOldTarget)
                             && _commonOldTarget instanceof ${targetPackageName}.${agg.targetType()} _candidate) {
                         long _oldSrcCount = aggregationIndex.values().stream().filter(v -> v == _candidate).count();
-                        if (_oldSrcCount == (long) _srcElems.size()) _reuseTarget = _candidate;
+                        if (_oldSrcCount == (long) _srcElems.size()) {
+                            // Target renamed only when: source fingerprint unchanged, target fingerprint
+                            // changed, and no source deletions from this group (otherwise it's a conflict).
+                            boolean _targetRenamedOnly = false;
+                            long _staleSrcForCandidate = 0;
+                            for (EObject _staleEntry : CorrespondenceModel.findDeletedAggregationSourceEntries(corrResource)) {
+                                if (_candidate.equals(CorrespondenceModel.getTargetObject(_staleEntry))) {
+                                    _staleSrcForCandidate++;
+                                }
+                            }
+                            if (_staleSrcForCandidate == 0 && !_srcElems.isEmpty()) {
+                                ${sourcePackageName}.${agg.sourceType()} _firstSrc = _srcElems.get(0);
+                                EObject _ceCheck = entryIndex.get(_firstSrc);
+                                if (_ceCheck != null) {
+                                    String _storedSrcFp = CorrespondenceModel.getFingerprint(_ceCheck);
+                                    String _curSrcFp = computeFingerprint(_firstSrc);
+                                    String _storedTgtFp = CorrespondenceModel.getTargetFingerprint(_ceCheck);
+                                    String _curTgtFp = computeFingerprintBack(_candidate);
+                                    if (_storedSrcFp != null && _storedSrcFp.equals(_curSrcFp)
+                                            && _storedTgtFp != null && !_storedTgtFp.equals(_curTgtFp)) {
+                                        _targetRenamedOnly = true;
+                                    }
+                                }
+                            }
+                            if (_targetRenamedOnly) {
+                                // Preserve target's rename; let backward agg propagate it to source elements.
+                                _processedTargets.add(_candidate);
+                                for (${sourcePackageName}.${agg.sourceType()} _srcElem : _srcElems) {
+                                    aggregationIndex.put(_srcElem, _candidate);
+                                }
+                                _groupHandled = true;
+                            } else {
+                                _reuseTarget = _candidate;
+                            }
+                        }
                     }
                     if (_reuseTarget != null) {
                         ${targetPackageName}.${agg.targetType()} _oldTgt = _reuseTarget;
@@ -161,15 +205,15 @@
                         CorrespondenceModel.updateAllAggregationTargetFingerprints(corrResource, _oldTgt, _newTgtFp);
                         for (${sourcePackageName}.${agg.sourceType()} _srcElem : _srcElems) {
                             String _newSrcFp = computeFingerprint(_srcElem);
-                            Optional<EObject> _ceOpt = CorrespondenceModel.findBySource(corrResource, _srcElem);
-                            _ceOpt.ifPresent(ce -> {
-                                CorrespondenceModel.updateFingerprint(ce, _newSrcFp);
-                                CorrespondenceModel.updateTargetFingerprint(ce, _newTgtFp);
-                            });
+                            EObject _ceOpt = entryIndex.get(_srcElem);
+                            if (_ceOpt != null) {
+                                CorrespondenceModel.updateFingerprint(_ceOpt, _newSrcFp);
+                                CorrespondenceModel.updateTargetFingerprint(_ceOpt, _newTgtFp);
+                            }
                             aggregationIndex.put(_srcElem, _oldTgt);
                         }
                         _updated.add(_oldTgt);
-                    } else {
+                    } else if (!_groupHandled) {
                         // True new group: create target element
                         ${targetPackageName}.${agg.targetType()} _newTgt = ${targetFactory}.eINSTANCE.create${agg.targetType()}();
                         _newTgt.set${agg.groupByTargetAttr()?cap_first}(_value);
@@ -181,12 +225,12 @@
                             EObject _indexedTarget = aggregationIndex.get(_srcElem);
                             if (_indexedTarget != null && _indexedTarget != _newTgt) {
                                 // Element moved from another group
-                                Optional<EObject> _oldCE = CorrespondenceModel.findBySource(corrResource, _srcElem);
-                                _oldCE.ifPresent(ce -> {
-                                    CorrespondenceModel.updateTargetObject(ce, _newTgt, "${agg.targetType()}");
-                                    CorrespondenceModel.updateFingerprint(ce, computeFingerprint(_srcElem));
-                                    CorrespondenceModel.updateTargetFingerprint(ce, computeFingerprintBack(_newTgt));
-                                });
+                                EObject _oldCE = entryIndex.get(_srcElem);
+                                if (_oldCE != null) {
+                                    CorrespondenceModel.updateTargetObject(_oldCE, _newTgt, "${agg.targetType()}");
+                                    CorrespondenceModel.updateFingerprint(_oldCE, computeFingerprint(_srcElem));
+                                    CorrespondenceModel.updateTargetFingerprint(_oldCE, computeFingerprintBack(_newTgt));
+                                }
                             } else if (_indexedTarget == null) {
                                 String _srcFp = computeFingerprint(_srcElem);
                                 CorrespondenceModel.addAggregationEntry(corrResource, _srcElem, "${agg.sourceType()}", _srcFp, _newTgt, "${agg.targetType()}", _tgtFp);
@@ -198,9 +242,18 @@
                 }
             }
 
-            // Step 4: delete target elements whose group no longer exists in source
+            // Step 4: delete target elements whose group no longer exists in source.
+            // Guard: only delete elements that were previously tracked in the corr model
+            // (either via a live aggregation entry or a stale source entry where src was deleted).
+            // Target elements with NO corr entry at all were freshly added by the target side
+            // and must be preserved so the backward aggregation can propagate them to source.
+            java.util.Set<EObject> _knownTargets = new java.util.HashSet<>(_initialAggTargets);
+            for (EObject _staleEntry : CorrespondenceModel.findDeletedAggregationSourceEntries(corrResource)) {
+                EObject _staleTgt = CorrespondenceModel.getTargetObject(_staleEntry);
+                if (_staleTgt != null) _knownTargets.add(_staleTgt);
+            }
             for (${targetPackageName}.${agg.targetType()} _existingTgt : _existingInParent.values()) {
-                if (!_processedTargets.contains(_existingTgt)) {
+                if (!_processedTargets.contains(_existingTgt) && _knownTargets.contains(_existingTgt)) {
                     EcoreUtil.delete(_existingTgt, true);
                 }
             }
@@ -224,6 +277,13 @@
             java.util.Map<EObject, EObject> aggregationIndex,
             List<EObject> _created, List<EObject> _updated) {
 
+        // Build O(1) source→corrEntry index to avoid O(n) findBySource scan inside loop.
+        Map<EObject, EObject> entryIndexBwd = new HashMap<>();
+        for (EObject _e : CorrespondenceModel.getAllEntries(corrResource)) {
+            EObject _src = CorrespondenceModel.getSourceObject(_e);
+            if (_src != null) entryIndexBwd.put(_src, _e);
+        }
+
         // Build reverse index: target element → list of existing source elements
         java.util.Map<EObject, java.util.List<EObject>> _reverseIdx =
             CorrespondenceModel.buildReverseAggregationIndex(corrResource);
@@ -245,11 +305,11 @@
                 if (_srcElemObj instanceof ${sourcePackageName}.${agg.sourceType()} _srcElem) {
                     if (!_value.equals(_srcElem.get${agg.groupBySourceAttr()?cap_first}())) {
                         _srcElem.set${agg.groupBySourceAttr()?cap_first}(_value);
-                        Optional<EObject> _ceOpt = CorrespondenceModel.findBySource(corrResource, _srcElem);
-                        _ceOpt.ifPresent(ce -> {
-                            CorrespondenceModel.updateFingerprint(ce, computeFingerprint(_srcElem));
-                            CorrespondenceModel.updateTargetFingerprint(ce, computeFingerprintBack(_tgtElem));
-                        });
+                        EObject _ceOpt = entryIndexBwd.get(_srcElem);
+                        if (_ceOpt != null) {
+                            CorrespondenceModel.updateFingerprint(_ceOpt, computeFingerprint(_srcElem));
+                            CorrespondenceModel.updateTargetFingerprint(_ceOpt, computeFingerprintBack(_tgtElem));
+                        }
                         _updated.add(_srcElem);
                     }
                 }

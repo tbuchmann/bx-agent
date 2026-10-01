@@ -87,10 +87,13 @@ class CorrespondenceModelTest {
 
     @Test
     void testBuildIndex() {
-        EObject srcA = makeEntry();
-        EObject tgtX = makeEntry();
-        EObject srcB = makeEntry();
-        EObject tgtY = makeEntry();
+        // Objects must live in resources so eResource() != null (mirrors real EMF usage)
+        Resource srcRes = rs.createResource(URI.createURI("memory:///src.xmi"));
+        Resource tgtRes = rs.createResource(URI.createURI("memory:///tgt.xmi"));
+        EObject srcA = makeEntry(); srcRes.getContents().add(srcA);
+        EObject tgtX = makeEntry(); tgtRes.getContents().add(tgtX);
+        EObject srcB = makeEntry(); srcRes.getContents().add(srcB);
+        EObject tgtY = makeEntry(); tgtRes.getContents().add(tgtY);
 
         CorrespondenceModel.addEntry(corrResource,
                 srcA, "TypeA", "fp:a", tgtX, "TypeX");

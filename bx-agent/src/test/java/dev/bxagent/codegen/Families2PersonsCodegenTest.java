@@ -332,11 +332,11 @@ class Families2PersonsCodegenTest {
             "Should have Szenario B comment in mapRoleBasedTypesIncremental");
 
         // Reads stored containment role from corrEntry
-        assertTrue(code.contains("CorrespondenceModel.getSourceContainmentRole(entryOpt.get())"),
+        assertTrue(code.contains("CorrespondenceModel.getSourceContainmentRole(entryOpt)"),
             "Should read stored sourceContainmentRole from corrEntry");
 
         // Updates stored containment role on role change
-        assertTrue(code.contains("CorrespondenceModel.updateSourceContainmentRole(entryOpt.get(), _currentSrcRole)"),
+        assertTrue(code.contains("CorrespondenceModel.updateSourceContainmentRole(entryOpt, _currentSrcRole)"),
             "Should update sourceContainmentRole in corrEntry on role change");
 
         // containmentRole computed from eContainmentFeature
@@ -363,9 +363,9 @@ class Families2PersonsCodegenTest {
         // Szenario B backward: target containment role tracking
         assertTrue(code.contains("// Check target containment role (Szenario B backward"),
             "Should have backward Szenario B comment");
-        assertTrue(code.contains("CorrespondenceModel.getTargetContainmentRole(entryOpt.get())"),
+        assertTrue(code.contains("CorrespondenceModel.getTargetContainmentRole(entryOpt)"),
             "Should read stored targetContainmentRole in backward path");
-        assertTrue(code.contains("CorrespondenceModel.updateTargetContainmentRole(entryOpt.get(), _currentTgtRole)"),
+        assertTrue(code.contains("CorrespondenceModel.updateTargetContainmentRole(entryOpt, _currentTgtRole)"),
             "Should update targetContainmentRole in corrEntry");
     }
 

@@ -118,9 +118,13 @@ public class BXAgentService {
      * Runs FreeMarker and writes both generated files to {@code outputDir}.
      */
     public Session generate(Session s, Path outputDir) throws IOException {
+        return generate(s, outputDir, "dev.bxagent.generated");
+    }
+
+    public Session generate(Session s, Path outputDir, String basePackage) throws IOException {
         TransformationCodegen codegen = new TransformationCodegen();
-        GeneratedFile transformation = codegen.generateTransformation(s.spec());
-        GeneratedFile test           = codegen.generateTest(s.spec());
+        GeneratedFile transformation = codegen.generateTransformation(s.spec(), basePackage);
+        GeneratedFile test           = codegen.generateTest(s.spec(), basePackage);
 
         Files.createDirectories(outputDir);
         Files.writeString(outputDir.resolve(transformation.fileName()), transformation.content());

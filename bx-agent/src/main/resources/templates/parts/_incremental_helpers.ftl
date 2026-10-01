@@ -73,12 +73,41 @@
         if (srcObj instanceof ${sourcePackageName}.${typeMapping.sourceType()} source
                 && tgtObj instanceof ${targetPackageName}.${typeMapping.targetType()} target) {
     <#list attributeMappings as mapping>
-        <#if mapping.sourceOwnerType()?? && (mapping.sourceOwnerType() == typeMapping.sourceType() || !typeMappings?filter(tm -> tm.sourceType() == mapping.sourceOwnerType())?has_content) && mapping.forwardExpression()?? && mapping.targetAttr()?? && mapping.targetAttr()?has_content>
+        <#if mapping.sourceOwnerType()?? && (mapping.sourceOwnerType() == typeMapping.sourceType() || (!typeMappings?filter(tm -> tm.sourceType() == mapping.sourceOwnerType())?has_content && !conditionalTypeMappings?filter(ctm -> ctm.sourceType() == mapping.sourceOwnerType())?has_content)) && mapping.forwardExpression()?? && mapping.targetAttr()?? && mapping.targetAttr()?has_content>
             target.set${mapping.targetAttr()?cap_first}(${mapping.forwardExpression()});
         </#if>
     </#list>
         }
 </#list>
+<#if conditionalTypeMappings?has_content>
+<#assign _seenFwdPairs = [] />
+<#list conditionalTypeMappings as ctm>
+<#list ctm.branches() as branch>
+<#if branch.targetType()??>
+<#assign _fwdPairKey = ctm.sourceType() + "::" + branch.targetType() />
+<#if !_seenFwdPairs?seq_contains(_fwdPairKey)>
+<#assign _seenFwdPairs = _seenFwdPairs + [_fwdPairKey] />
+<#assign _hasFwdAttr = false />
+<#list ctmAttributeMappings as _am>
+<#if _am.sourceOwnerType()?? && _am.sourceOwnerType() == ctm.sourceType() && _am.targetOwnerType()?? && _am.targetOwnerType() == branch.targetType() && _am.forwardExpression()?? && _am.targetAttr()?? && _am.targetAttr()?has_content>
+<#assign _hasFwdAttr = true />
+</#if>
+</#list>
+<#if _hasFwdAttr>
+        if (srcObj instanceof ${sourcePackageName}.${ctm.sourceType()} _ctmUpdSrc
+                && tgtObj instanceof ${targetPackageName}.${branch.targetType()} _ctmUpdTgt) {
+<#list ctmAttributeMappings as _am>
+<#if _am.sourceOwnerType()?? && _am.sourceOwnerType() == ctm.sourceType() && _am.targetOwnerType()?? && _am.targetOwnerType() == branch.targetType() && _am.forwardExpression()?? && _am.targetAttr()?? && _am.targetAttr()?has_content>
+            _ctmUpdTgt.set${_am.targetAttr()?cap_first}(${_am.forwardExpression()?replace("source", "_ctmUpdSrc")});
+</#if>
+</#list>
+        }
+</#if>
+</#if>
+</#if>
+</#list>
+</#list>
+</#if>
     }
 
     /**
@@ -322,7 +351,7 @@
 <#assign rbm = entry.rbm>
 <#list entry.roleGroups as group>
         if (obj instanceof ${targetPackageName}.${group.targetType} _typed) {
-            return obj.eClass().getName() + ":" + _typed.get${rbm.targetAttr()?cap_first}() + "|";
+            return obj.eClass().getName() + ":" + extractGivenName(_typed.get${rbm.targetAttr()?cap_first}()) + "|";
         }
 </#list>
 </#list>
@@ -353,6 +382,14 @@
         }
 </#list>
         return null;
+    }
+
+    // Extracts the given (first) name from either "Firstname Lastname" or "Lastname, Firstname" format.
+    private static String extractGivenName(String fullName) {
+        if (fullName == null) return "";
+        if (fullName.contains(", ")) return fullName.substring(fullName.indexOf(", ") + 2).trim();
+        int sp = fullName.indexOf(' ');
+        return sp > 0 ? fullName.substring(0, sp).trim() : fullName;
     }
 </#if>
 
@@ -388,12 +425,41 @@
         if (tgtObj instanceof ${targetPackageName}.${typeMapping.targetType()} target
                 && srcObj instanceof ${sourcePackageName}.${typeMapping.sourceType()} source) {
     <#list attributeMappings as mapping>
-        <#if mapping.targetOwnerType()?? && (mapping.targetOwnerType() == typeMapping.targetType() || !typeMappings?filter(tm -> tm.targetType() == mapping.targetOwnerType())?has_content) && mapping.sourceOwnerType()?? && (mapping.sourceOwnerType() == typeMapping.sourceType() || !typeMappings?filter(tm -> tm.sourceType() == mapping.sourceOwnerType())?has_content) && mapping.backwardExpression()?? && mapping.sourceAttr()?? && mapping.sourceAttr()?has_content>
+        <#if mapping.targetOwnerType()?? && (mapping.targetOwnerType() == typeMapping.targetType() || (!typeMappings?filter(tm -> tm.targetType() == mapping.targetOwnerType())?has_content && !conditionalTypeMappings?filter(ctm -> ctm.branches()?filter(br -> br.targetType() == mapping.targetOwnerType())?has_content)?has_content)) && mapping.sourceOwnerType()?? && (mapping.sourceOwnerType() == typeMapping.sourceType() || (!typeMappings?filter(tm -> tm.sourceType() == mapping.sourceOwnerType())?has_content && !conditionalTypeMappings?filter(ctm -> ctm.sourceType() == mapping.sourceOwnerType())?has_content)) && mapping.backwardExpression()?? && mapping.sourceAttr()?? && mapping.sourceAttr()?has_content>
             source.set${mapping.sourceAttr()?cap_first}(${mapping.backwardExpression()});
         </#if>
     </#list>
         }
 </#list>
+<#if conditionalTypeMappings?has_content>
+<#assign _seenBwdPairs = [] />
+<#list conditionalTypeMappings as ctm>
+<#list ctm.branches() as branch>
+<#if branch.targetType()??>
+<#assign _bwdPairKey = ctm.sourceType() + "::" + branch.targetType() />
+<#if !_seenBwdPairs?seq_contains(_bwdPairKey)>
+<#assign _seenBwdPairs = _seenBwdPairs + [_bwdPairKey] />
+<#assign _hasBwdAttr = false />
+<#list ctmAttributeMappings as _am>
+<#if _am.targetOwnerType()?? && _am.targetOwnerType() == branch.targetType() && _am.sourceOwnerType()?? && _am.sourceOwnerType() == ctm.sourceType() && _am.backwardExpression()?? && !_am.backwardExpression()?contains("_ctmBw") && _am.sourceAttr()?? && _am.sourceAttr()?has_content>
+<#assign _hasBwdAttr = true />
+</#if>
+</#list>
+<#if _hasBwdAttr>
+        if (tgtObj instanceof ${targetPackageName}.${branch.targetType()} _ctmBkTgt
+                && srcObj instanceof ${sourcePackageName}.${ctm.sourceType()} _ctmBkSrc) {
+<#list ctmAttributeMappings as _am>
+<#if _am.targetOwnerType()?? && _am.targetOwnerType() == branch.targetType() && _am.sourceOwnerType()?? && _am.sourceOwnerType() == ctm.sourceType() && _am.backwardExpression()?? && !_am.backwardExpression()?contains("_ctmBw") && _am.sourceAttr()?? && _am.sourceAttr()?has_content>
+            _ctmBkSrc.set${_am.sourceAttr()?cap_first}(${_am.backwardExpression()?replace("target", "_ctmBkTgt")});
+</#if>
+</#list>
+        }
+</#if>
+</#if>
+</#if>
+</#list>
+</#list>
+</#if>
 <#list roleBasedTypeMappingModels as entry>
     <#assign rbm = entry.rbm>
         // Role-based backward attribute update: apply backwardMemberNameExpression

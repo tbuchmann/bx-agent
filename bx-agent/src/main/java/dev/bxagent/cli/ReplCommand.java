@@ -1,5 +1,7 @@
 package dev.bxagent.cli;
 
+import dev.bxagent.codegen.ProjectScaffolder;
+import dev.bxagent.codegen.ProjectSpec;
 import dev.bxagent.llm.*;
 import dev.bxagent.mapping.BidirectionalityChecker;
 import dev.bxagent.mapping.MappingModel;
@@ -38,7 +40,9 @@ public final class ReplCommand {
         "/help", "/exit", "/quit", "/status", "/config",
         "/backend", "/model", "/source", "/target",
         "/description", "/desc", "/exclude", "/output",
-        "/plan", "/build", "/show", "/integrate", "/test"
+        "/plan", "/build", "/show", "/integrate", "/test",
+        "/package", "/project", "/project-name", "/group-id", "/artifact-id",
+        "/source-dep", "/target-dep", "/benchmarx", "/adapter-package", "/scaffold"
     );
 
     public static void run() {
@@ -105,12 +109,22 @@ public final class ReplCommand {
                          "/desc"          -> cmdDescription(state, rest);
                     case "/exclude"       -> cmdExclude(state, rest);
                     case "/output"        -> cmdOutput(state, rest);
-                    case "/plan"          -> cmdPlan(state, rest);
-                    case "/build"         -> cmdBuild(state);
-                    case "/show"          -> cmdShow(state, rest);
-                    case "/integrate"     -> cmdIntegrate(state, rest);
-                    case "/test"          -> cmdTest(state, rest);
-                    default               -> TerminalHelper.error(
+                    case "/plan"            -> cmdPlan(state, rest);
+                    case "/build"           -> cmdBuild(state);
+                    case "/show"            -> cmdShow(state, rest);
+                    case "/integrate"       -> cmdIntegrate(state, rest);
+                    case "/test"            -> cmdTest(state, rest);
+                    case "/package"         -> cmdPackage(state, rest);
+                    case "/project"         -> cmdProject(state, rest);
+                    case "/project-name"    -> cmdProjectName(state, rest);
+                    case "/group-id"        -> cmdGroupId(state, rest);
+                    case "/artifact-id"     -> cmdArtifactId(state, rest);
+                    case "/source-dep"      -> cmdSourceDep(state, rest);
+                    case "/target-dep"      -> cmdTargetDep(state, rest);
+                    case "/benchmarx"       -> cmdBenchmarx(state, rest);
+                    case "/adapter-package" -> cmdAdapterPackage(state, rest);
+                    case "/scaffold"        -> cmdScaffold(state);
+                    default                 -> TerminalHelper.error(
                             "Unknown command: " + cmd + " — type /help for help");
                 }
             } catch (Exception e) {
@@ -146,11 +160,21 @@ public final class ReplCommand {
                          "/desc"          -> cmdDescription(state, rest);
                     case "/exclude"       -> cmdExclude(state, rest);
                     case "/output"        -> cmdOutput(state, rest);
-                    case "/plan"          -> cmdPlan(state, rest);
-                    case "/build"         -> cmdBuild(state);
-                    case "/show"          -> cmdShow(state, rest);
-                    case "/integrate"     -> cmdIntegrate(state, rest);
-                    case "/test"          -> cmdTest(state, rest);
+                    case "/plan"            -> cmdPlan(state, rest);
+                    case "/build"           -> cmdBuild(state);
+                    case "/show"            -> cmdShow(state, rest);
+                    case "/integrate"       -> cmdIntegrate(state, rest);
+                    case "/test"            -> cmdTest(state, rest);
+                    case "/package"         -> cmdPackage(state, rest);
+                    case "/project"         -> cmdProject(state, rest);
+                    case "/project-name"    -> cmdProjectName(state, rest);
+                    case "/group-id"        -> cmdGroupId(state, rest);
+                    case "/artifact-id"     -> cmdArtifactId(state, rest);
+                    case "/source-dep"      -> cmdSourceDep(state, rest);
+                    case "/target-dep"      -> cmdTargetDep(state, rest);
+                    case "/benchmarx"       -> cmdBenchmarx(state, rest);
+                    case "/adapter-package" -> cmdAdapterPackage(state, rest);
+                    case "/scaffold"        -> cmdScaffold(state);
                     default               -> TerminalHelper.error(
                             "Unknown command: " + cmd + " — type /help for help");
                 }
@@ -182,7 +206,8 @@ public final class ReplCommand {
             // Context-sensitive second-word completion
             String cmd = parsedLine.words().get(0).toLowerCase();
             switch (cmd) {
-                case "/source", "/target", "/output", "/config", "/integrate" ->
+                case "/source", "/target", "/output", "/config", "/integrate",
+                     "/project", "/benchmarx" ->
                     fileCompleter.complete(lineReader, parsedLine, candidates);
                 case "/plan" -> {
                     if (wordIdx == 1) {
@@ -233,6 +258,18 @@ public final class ReplCommand {
         row("/show test",             "Print generated test skeleton");
         row("/status",                "Show current session state");
         System.out.println();
+        System.out.println(TerminalHelper.cyan("  Project scaffolding"));
+        row("/package [pkg]",         "Show or set base Java package (default: dev.bxagent.generated)");
+        row("/project [dir]",         "Show or set project output directory");
+        row("/project-name [name]",   "Eclipse project name (e.g. de.tbuchmann.bxagent.f2p)");
+        row("/group-id [id]",         "Maven groupId (default: derived from project-name)");
+        row("/artifact-id [id]",      "Maven artifactId (default: derived from project-name)");
+        row("/source-dep [g:a:v]",    "Source metamodel Maven dependency");
+        row("/target-dep [g:a:v]",    "Target metamodel Maven dependency");
+        row("/benchmarx [path]",      "Path to BenchmarX project root (enables adapter generation)");
+        row("/adapter-package [pkg]", "Package for the BenchmarX adapter class");
+        row("/scaffold",              "Generate Maven/Eclipse project from current build");
+        System.out.println();
         System.out.println(TerminalHelper.cyan("  General"));
         row("/help",                  "Show this help");
         row("/exit",                  "Quit BXAgent");
@@ -261,6 +298,16 @@ public final class ReplCommand {
         statusLine("Code",        s.generatedTransformation != null
                 ? s.generatedTransformation.fileName() : "—");
         statusLine("Output dir",  s.outputDir.toString());
+        System.out.println();
+        System.out.println(TerminalHelper.cyan("  Project scaffolding:"));
+        statusLine("Package",     s.basePackage);
+        statusLine("Project dir", s.projectDir != null ? s.projectDir.toString() : "—");
+        statusLine("Project name",s.projectName != null ? s.projectName : "—");
+        statusLine("Source dep",  s.sourceMetamodelDep != null
+            ? s.sourceMetamodelDep.groupId() + ":" + s.sourceMetamodelDep.artifactId() + ":" + s.sourceMetamodelDep.version() : "—");
+        statusLine("Target dep",  s.targetMetamodelDep != null
+            ? s.targetMetamodelDep.groupId() + ":" + s.targetMetamodelDep.artifactId() + ":" + s.targetMetamodelDep.version() : "—");
+        statusLine("BenchmarX",   s.benchmarxPath != null ? s.benchmarxPath.toString() : "—");
     }
 
     private static void statusLine(String label, String value) {
@@ -407,7 +454,7 @@ public final class ReplCommand {
 
         BXAgentService.Session tmp = new BXAgentService.Session(
             null, null, enhanced, null, null, null);
-        tmp = SERVICE.generate(tmp, s.outputDir);
+        tmp = SERVICE.generate(tmp, s.outputDir, s.basePackage);
         s.generatedTransformation = tmp.generatedTransformation();
         s.generatedTest           = tmp.generatedTest();
 
@@ -565,6 +612,136 @@ public final class ReplCommand {
         if (start == end) return 0;
         try { return Integer.parseInt(line.substring(start, end)); }
         catch (NumberFormatException e) { return 0; }
+    }
+
+    // ── Project scaffolding commands ─────────────────────────────────────────
+
+    private static void cmdPackage(SessionState s, String rest) {
+        if (rest.isEmpty()) {
+            TerminalHelper.info("Base package: " + TerminalHelper.cyan(s.basePackage));
+        } else {
+            s.basePackage = rest.trim();
+            TerminalHelper.success("Base package set to: " + TerminalHelper.cyan(s.basePackage));
+        }
+    }
+
+    private static void cmdProject(SessionState s, String rest) {
+        if (rest.isEmpty()) {
+            TerminalHelper.info("Project dir: " + (s.projectDir != null
+                ? TerminalHelper.cyan(s.projectDir.toString()) : "—"));
+        } else {
+            s.projectDir = Paths.get(rest.trim());
+            TerminalHelper.success("Project dir set to: " + TerminalHelper.cyan(rest));
+        }
+    }
+
+    private static void cmdProjectName(SessionState s, String rest) {
+        if (rest.isEmpty()) {
+            TerminalHelper.info("Project name: " + (s.projectName != null
+                ? TerminalHelper.cyan(s.projectName) : "—"));
+        } else {
+            s.projectName = rest.trim();
+            TerminalHelper.success("Project name set to: " + TerminalHelper.cyan(s.projectName));
+        }
+    }
+
+    private static void cmdGroupId(SessionState s, String rest) {
+        if (rest.isEmpty()) {
+            TerminalHelper.info("Group ID: " + (s.projectGroupId != null
+                ? TerminalHelper.cyan(s.projectGroupId) : "— (derived from project-name)"));
+        } else {
+            s.projectGroupId = rest.trim();
+            TerminalHelper.success("Group ID set to: " + TerminalHelper.cyan(s.projectGroupId));
+        }
+    }
+
+    private static void cmdArtifactId(SessionState s, String rest) {
+        if (rest.isEmpty()) {
+            TerminalHelper.info("Artifact ID: " + (s.projectArtifactId != null
+                ? TerminalHelper.cyan(s.projectArtifactId) : "— (derived from project-name)"));
+        } else {
+            s.projectArtifactId = rest.trim();
+            TerminalHelper.success("Artifact ID set to: " + TerminalHelper.cyan(s.projectArtifactId));
+        }
+    }
+
+    private static void cmdSourceDep(SessionState s, String rest) {
+        if (rest.isEmpty()) {
+            TerminalHelper.info("Source metamodel dep: " + (s.sourceMetamodelDep != null
+                ? TerminalHelper.cyan(s.sourceMetamodelDep.groupId() + ":"
+                    + s.sourceMetamodelDep.artifactId() + ":" + s.sourceMetamodelDep.version()) : "—"));
+        } else {
+            s.sourceMetamodelDep = ProjectSpec.MavenDep.parse(rest.trim());
+            TerminalHelper.success("Source metamodel dep set to: " + TerminalHelper.cyan(rest));
+        }
+    }
+
+    private static void cmdTargetDep(SessionState s, String rest) {
+        if (rest.isEmpty()) {
+            TerminalHelper.info("Target metamodel dep: " + (s.targetMetamodelDep != null
+                ? TerminalHelper.cyan(s.targetMetamodelDep.groupId() + ":"
+                    + s.targetMetamodelDep.artifactId() + ":" + s.targetMetamodelDep.version()) : "—"));
+        } else {
+            s.targetMetamodelDep = ProjectSpec.MavenDep.parse(rest.trim());
+            TerminalHelper.success("Target metamodel dep set to: " + TerminalHelper.cyan(rest));
+        }
+    }
+
+    private static void cmdBenchmarx(SessionState s, String rest) {
+        if (rest.isEmpty()) {
+            TerminalHelper.info("BenchmarX path: " + (s.benchmarxPath != null
+                ? TerminalHelper.cyan(s.benchmarxPath.toString()) : "— (adapter generation disabled)"));
+        } else {
+            Path p = Paths.get(rest.trim());
+            if (!Files.exists(p)) { TerminalHelper.error("Path not found: " + p); return; }
+            s.benchmarxPath = p;
+            TerminalHelper.success("BenchmarX path set to: " + TerminalHelper.cyan(rest));
+        }
+    }
+
+    private static void cmdAdapterPackage(SessionState s, String rest) {
+        if (rest.isEmpty()) {
+            TerminalHelper.info("Adapter package: " + (s.adapterPackage != null
+                ? TerminalHelper.cyan(s.adapterPackage)
+                : "— (default: " + s.basePackage + ".implementations.bxagent)"));
+        } else {
+            s.adapterPackage = rest.trim();
+            TerminalHelper.success("Adapter package set to: " + TerminalHelper.cyan(s.adapterPackage));
+        }
+    }
+
+    private static void cmdScaffold(SessionState s) throws Exception {
+        if (s.generatedTransformation == null) {
+            TerminalHelper.error("No generated code. Run /build first."); return;
+        }
+        if (s.projectDir == null) {
+            TerminalHelper.error("No project directory set. Use /project <dir> first."); return;
+        }
+        String effProjectName = s.projectName != null ? s.projectName
+            : (s.spec != null
+                ? s.spec.sourcePackageName() + "2" + s.spec.targetPackageName()
+                : "bxagent-transformation");
+        String effGroupId = s.projectGroupId != null ? s.projectGroupId
+            : (effProjectName.contains(".") ? effProjectName.substring(0, effProjectName.lastIndexOf('.')) : effProjectName);
+        String effArtifactId = s.projectArtifactId != null ? s.projectArtifactId
+            : effProjectName.replace('.', '-');
+        String effAdapterPkg = s.adapterPackage != null ? s.adapterPackage
+            : s.basePackage + ".implementations.bxagent";
+
+        BXAgentService.Session tmp = new BXAgentService.Session(
+            s.sourceSummary, s.targetSummary, s.spec, s.rawMappingJson,
+            s.generatedTransformation, s.generatedTest);
+
+        ProjectSpec pspec = new ProjectSpec(
+            s.projectDir, effProjectName, effGroupId, effArtifactId,
+            s.basePackage, s.sourceMetamodelDep, s.targetMetamodelDep,
+            s.benchmarxPath, effAdapterPkg);
+
+        new ProjectScaffolder().scaffold(tmp, pspec);
+        TerminalHelper.success("Project generated: " + TerminalHelper.cyan(s.projectDir.toString()));
+        if (s.benchmarxPath != null) {
+            TerminalHelper.success("BenchmarX adapter in: " + TerminalHelper.cyan(effAdapterPkg));
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

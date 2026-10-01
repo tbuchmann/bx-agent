@@ -1,4 +1,4 @@
-package dev.bxagent.generated;
+package ${basePackage};
 
 // EMF imports for source and target packages
 import ${sourcePackageName}.*;

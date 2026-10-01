@@ -1,6 +1,8 @@
 package dev.bxagent.cli;
 
 import dev.bxagent.codegen.GeneratedFile;
+import dev.bxagent.codegen.ProjectScaffolder;
+import dev.bxagent.codegen.ProjectSpec;
 import dev.bxagent.llm.*;
 import dev.bxagent.mapping.BidirectionalityChecker;
 import dev.bxagent.mapping.MappingModel;
@@ -101,6 +103,62 @@ public class TransformCommand implements Callable<Integer> {
     )
     boolean debugLog;
 
+    // ── Project scaffolding options ───────────────────────────────────────────
+
+    @Option(
+        names = {"--base-package"},
+        description = "Base Java package for the generated transformation class (default: dev.bxagent.generated)"
+    )
+    String basePackage = "dev.bxagent.generated";
+
+    @Option(
+        names = {"--project-dir"},
+        description = "Generate a standalone Maven/Eclipse project at this path"
+    )
+    Path projectDir;
+
+    @Option(
+        names = {"--project-name"},
+        description = "Eclipse project name, e.g. de.tbuchmann.bxagent.f2p (default: derived from metamodel names)"
+    )
+    String projectName;
+
+    @Option(
+        names = {"--group-id"},
+        description = "Maven groupId for the generated project (default: derived from --project-name)"
+    )
+    String groupId;
+
+    @Option(
+        names = {"--artifact-id"},
+        description = "Maven artifactId for the generated project (default: derived from --project-name)"
+    )
+    String artifactId;
+
+    @Option(
+        names = {"--source-metamodel-dep"},
+        description = "Source metamodel Maven dependency as groupId:artifactId:version"
+    )
+    String sourceMetamodelDep;
+
+    @Option(
+        names = {"--target-metamodel-dep"},
+        description = "Target metamodel Maven dependency as groupId:artifactId:version"
+    )
+    String targetMetamodelDep;
+
+    @Option(
+        names = {"--benchmarx-path"},
+        description = "Path to BenchmarX project root; enables BenchmarX adapter class generation"
+    )
+    Path benchmarxPath;
+
+    @Option(
+        names = {"--adapter-package"},
+        description = "Package for the generated BenchmarX adapter (default: <base-package>.implementations.bxagent)"
+    )
+    String adapterPackage;
+
     @Override
     public Integer call() {
         try {
@@ -190,11 +248,41 @@ public class TransformCommand implements Callable<Integer> {
             // Step 6: Generate code
             TerminalHelper.step("[6/7] Generating Java code...");
             final BXAgentService.Session s1 = session;
-            session = service.generate(s1, outputDir);
+            session = service.generate(s1, outputDir, basePackage);
             TerminalHelper.success(TerminalHelper.cyan(session.generatedTransformation().fileName()));
             TerminalHelper.success(TerminalHelper.cyan(session.generatedTest().fileName()));
             TerminalHelper.success("Written to: " + TerminalHelper.cyan(outputDir.toString()));
             System.out.println();
+
+            // Step 6b: Scaffold Maven/Eclipse project (optional)
+            if (projectDir != null) {
+                TerminalHelper.step("[6b] Scaffolding Maven/Eclipse project...");
+                String effProjectName  = projectName  != null ? projectName
+                    : session.spec().sourcePackageName() + "2" + session.spec().targetPackageName();
+                String effGroupId      = groupId      != null ? groupId
+                    : effProjectName.contains(".") ? effProjectName.substring(0, effProjectName.lastIndexOf('.')) : effProjectName;
+                String effArtifactId   = artifactId   != null ? artifactId
+                    : effProjectName.replace('.', '-');
+                String effAdapterPkg   = adapterPackage != null ? adapterPackage
+                    : basePackage + ".implementations.bxagent";
+                ProjectSpec pspec = new ProjectSpec(
+                    projectDir,
+                    effProjectName,
+                    effGroupId,
+                    effArtifactId,
+                    basePackage,
+                    sourceMetamodelDep != null ? ProjectSpec.MavenDep.parse(sourceMetamodelDep) : null,
+                    targetMetamodelDep != null ? ProjectSpec.MavenDep.parse(targetMetamodelDep) : null,
+                    benchmarxPath,
+                    effAdapterPkg
+                );
+                new ProjectScaffolder().scaffold(session, pspec);
+                TerminalHelper.success("Project generated: " + TerminalHelper.cyan(projectDir.toString()));
+                if (benchmarxPath != null) {
+                    TerminalHelper.success("BenchmarX adapter written to: " + TerminalHelper.cyan(effAdapterPkg));
+                }
+                System.out.println();
+            }
 
             // Step 7: Validate (optional)
             if (validate) {

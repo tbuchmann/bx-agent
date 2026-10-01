@@ -1,4 +1,4 @@
-package dev.bxagent.generated;
+package ${basePackage};
 
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;

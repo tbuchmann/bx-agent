@@ -1,6 +1,7 @@
 package dev.bxagent.cli;
 
 import dev.bxagent.codegen.GeneratedFile;
+import dev.bxagent.codegen.ProjectSpec;
 import dev.bxagent.mapping.MappingModel;
 import dev.bxagent.metamodel.MetamodelSummary;
 
@@ -37,7 +38,18 @@ class SessionState {
     Path outputDir = Paths.get("generated");
 
     // Options
-    boolean debugLog   = false;
+    boolean debugLog    = false;
     boolean interactive = true;
-    boolean validate   = false;
+    boolean validate    = false;
+
+    // Project scaffolding
+    String basePackage        = "dev.bxagent.generated";
+    Path   projectDir;
+    String projectName;
+    String projectGroupId;
+    String projectArtifactId;
+    ProjectSpec.MavenDep sourceMetamodelDep;
+    ProjectSpec.MavenDep targetMetamodelDep;
+    Path   benchmarxPath;
+    String adapterPackage;
 }

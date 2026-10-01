@@ -104,6 +104,11 @@
             Resource corrResource,
             com.google.common.collect.BiMap<EObject, EObject> corrIndex,
             Options options) {
+        Map<EObject, EObject> entryIndex = new HashMap<>();
+        for (EObject _e : CorrespondenceModel.getAllEntries(corrResource)) {
+            EObject _src = CorrespondenceModel.getSourceObject(_e);
+            if (_src != null) entryIndex.put(_src, _e);
+        }
 <#list roleBasedTypeMappingModels as entry>
     <#assign rbm = entry.rbm>
         for (${sourcePackageName}.${rbm.intermediateType()} family : (EList<${sourcePackageName}.${rbm.intermediateType()}>) sourceRoot.eGet(sourceRoot.eClass().getEStructuralFeature("${rbm.sourceContainerRef()}"))) {
@@ -126,9 +131,9 @@
                     corrIndex.put(member, obj);
                 } else {
                     // Known: check for role type change, containment role change, or attribute change
-                    Optional<EObject> entryOpt = CorrespondenceModel.findBySource(corrResource, member);
-                    if (entryOpt.isPresent()) {
-                        if (!"${roleEntry.targetType}".equals(CorrespondenceModel.getTargetType(entryOpt.get()))) {
+                    EObject entryOpt = entryIndex.get(member);
+                    if (entryOpt != null) {
+                        if (!"${roleEntry.targetType}".equals(CorrespondenceModel.getTargetType(entryOpt))) {
                             // Szenario A (type change): member moved to a different role → replace target object
                             EObject _oldTargetObj = corrIndex.get(member);
                             ${targetPackageName}.${roleEntry.targetType} _newTargetObj = ${targetFactory}.eINSTANCE.create${roleEntry.targetType}();
@@ -145,34 +150,34 @@
                             _newTargetObj.set${rbm.targetAttr()?cap_first}(${rbm.nameExpression()});
                             ((EList<EObject>) targetRoot.eGet(targetRoot.eClass().getEStructuralFeature("${rbm.targetContainerRef()}"))).add(_newTargetObj);
                             // Update corr entry and index BEFORE deleting old object (prevents EMF from nulling CE_TARGET_OBJECT)
-                            CorrespondenceModel.updateTargetObject(entryOpt.get(), _newTargetObj, _newTargetObj.eClass().getName());
-                            CorrespondenceModel.updateFingerprint(entryOpt.get(), _roleFp);
-                            CorrespondenceModel.updateTargetFingerprint(entryOpt.get(), computeFingerprintBack(_newTargetObj));
+                            CorrespondenceModel.updateTargetObject(entryOpt, _newTargetObj, _newTargetObj.eClass().getName());
+                            CorrespondenceModel.updateFingerprint(entryOpt, _roleFp);
+                            CorrespondenceModel.updateTargetFingerprint(entryOpt, computeFingerprintBack(_newTargetObj));
                             String _newSrcCR = member.eContainmentFeature() != null ? member.eContainmentFeature().getName() : "";
                             String _newTgtCR = _newTargetObj.eContainmentFeature() != null ? _newTargetObj.eContainmentFeature().getName() : "";
-                            CorrespondenceModel.updateSourceContainmentRole(entryOpt.get(), _newSrcCR);
-                            CorrespondenceModel.updateTargetContainmentRole(entryOpt.get(), _newTgtCR);
+                            CorrespondenceModel.updateSourceContainmentRole(entryOpt, _newSrcCR);
+                            CorrespondenceModel.updateTargetContainmentRole(entryOpt, _newTgtCR);
                             corrIndex.put(member, _newTargetObj);
                             EcoreUtil.delete(_oldTargetObj, true);
                         } else {
                             // Same target type: check for containment role change (Szenario B)
                             String _currentSrcRole = member.eContainmentFeature() != null ? member.eContainmentFeature().getName() : "";
-                            String _storedSrcRole  = CorrespondenceModel.getSourceContainmentRole(entryOpt.get());
+                            String _storedSrcRole  = CorrespondenceModel.getSourceContainmentRole(entryOpt);
                             if (_storedSrcRole == null) _storedSrcRole = "";
                             if (!_currentSrcRole.equals(_storedSrcRole)) {
                                 // Szenario B: same type, different containment role (e.g. father → sons)
                                 // Target stays in the same container (targetContainerRef is fixed for all roles).
                                 // Just update the stored roles in the corrEntry.
-                                CorrespondenceModel.updateSourceContainmentRole(entryOpt.get(), _currentSrcRole);
+                                CorrespondenceModel.updateSourceContainmentRole(entryOpt, _currentSrcRole);
                                 // targetContainmentRole stays the same (all roles share targetContainerRef)
                             }
-                            if (!_roleFp.equals(CorrespondenceModel.getFingerprint(entryOpt.get()))) {
+                            if (!_roleFp.equals(CorrespondenceModel.getFingerprint(entryOpt))) {
                                 // Fingerprint changed (name or family rename)
                                 EObject targetMember = corrIndex.get(member);
                                 if (targetMember instanceof ${targetPackageName}.${rbm.targetContainerElementType()} p) {
                                     p.set${rbm.targetAttr()?cap_first}(${rbm.nameExpression()});
-                                    CorrespondenceModel.updateFingerprint(entryOpt.get(), _roleFp);
-                                    CorrespondenceModel.updateTargetFingerprint(entryOpt.get(), computeFingerprintBack(targetMember));
+                                    CorrespondenceModel.updateFingerprint(entryOpt, _roleFp);
+                                    CorrespondenceModel.updateTargetFingerprint(entryOpt, computeFingerprintBack(targetMember));
                                 }
                             }
                         }
@@ -196,9 +201,9 @@
                     corrIndex.put(member, obj);
                 } else {
                     // Known: check for role type change, containment role change, or attribute change
-                    Optional<EObject> entryOpt = CorrespondenceModel.findBySource(corrResource, member);
-                    if (entryOpt.isPresent()) {
-                        if (!"${roleEntry.targetType}".equals(CorrespondenceModel.getTargetType(entryOpt.get()))) {
+                    EObject entryOpt = entryIndex.get(member);
+                    if (entryOpt != null) {
+                        if (!"${roleEntry.targetType}".equals(CorrespondenceModel.getTargetType(entryOpt))) {
                             // Szenario A (type change): member moved to a different role → replace target object
                             EObject _oldTargetObj = corrIndex.get(member);
                             ${targetPackageName}.${roleEntry.targetType} _newTargetObj = ${targetFactory}.eINSTANCE.create${roleEntry.targetType}();
@@ -215,31 +220,31 @@
                             _newTargetObj.set${rbm.targetAttr()?cap_first}(${rbm.nameExpression()});
                             ((EList<EObject>) targetRoot.eGet(targetRoot.eClass().getEStructuralFeature("${rbm.targetContainerRef()}"))).add(_newTargetObj);
                             // Update corr entry and index BEFORE deleting old object (prevents EMF from nulling CE_TARGET_OBJECT)
-                            CorrespondenceModel.updateTargetObject(entryOpt.get(), _newTargetObj, _newTargetObj.eClass().getName());
-                            CorrespondenceModel.updateFingerprint(entryOpt.get(), _roleFp);
-                            CorrespondenceModel.updateTargetFingerprint(entryOpt.get(), computeFingerprintBack(_newTargetObj));
+                            CorrespondenceModel.updateTargetObject(entryOpt, _newTargetObj, _newTargetObj.eClass().getName());
+                            CorrespondenceModel.updateFingerprint(entryOpt, _roleFp);
+                            CorrespondenceModel.updateTargetFingerprint(entryOpt, computeFingerprintBack(_newTargetObj));
                             String _newSrcCR = member.eContainmentFeature() != null ? member.eContainmentFeature().getName() : "";
                             String _newTgtCR = _newTargetObj.eContainmentFeature() != null ? _newTargetObj.eContainmentFeature().getName() : "";
-                            CorrespondenceModel.updateSourceContainmentRole(entryOpt.get(), _newSrcCR);
-                            CorrespondenceModel.updateTargetContainmentRole(entryOpt.get(), _newTgtCR);
+                            CorrespondenceModel.updateSourceContainmentRole(entryOpt, _newSrcCR);
+                            CorrespondenceModel.updateTargetContainmentRole(entryOpt, _newTgtCR);
                             corrIndex.put(member, _newTargetObj);
                             EcoreUtil.delete(_oldTargetObj, true);
                         } else {
                             // Same target type: check for containment role change (Szenario B)
                             String _currentSrcRole = member.eContainmentFeature() != null ? member.eContainmentFeature().getName() : "";
-                            String _storedSrcRole  = CorrespondenceModel.getSourceContainmentRole(entryOpt.get());
+                            String _storedSrcRole  = CorrespondenceModel.getSourceContainmentRole(entryOpt);
                             if (_storedSrcRole == null) _storedSrcRole = "";
                             if (!_currentSrcRole.equals(_storedSrcRole)) {
                                 // Szenario B: same type, different containment role (e.g. father → sons)
-                                CorrespondenceModel.updateSourceContainmentRole(entryOpt.get(), _currentSrcRole);
+                                CorrespondenceModel.updateSourceContainmentRole(entryOpt, _currentSrcRole);
                             }
-                            if (!_roleFp.equals(CorrespondenceModel.getFingerprint(entryOpt.get()))) {
+                            if (!_roleFp.equals(CorrespondenceModel.getFingerprint(entryOpt))) {
                                 // Fingerprint changed (name or family rename)
                                 EObject targetMember = corrIndex.get(member);
                                 if (targetMember instanceof ${targetPackageName}.${rbm.targetContainerElementType()} p) {
                                     p.set${rbm.targetAttr()?cap_first}(${rbm.nameExpression()});
-                                    CorrespondenceModel.updateFingerprint(entryOpt.get(), _roleFp);
-                                    CorrespondenceModel.updateTargetFingerprint(entryOpt.get(), computeFingerprintBack(targetMember));
+                                    CorrespondenceModel.updateFingerprint(entryOpt, _roleFp);
+                                    CorrespondenceModel.updateTargetFingerprint(entryOpt, computeFingerprintBack(targetMember));
                                 }
                             }
                         }
@@ -263,6 +268,11 @@
             Resource corrResource,
             com.google.common.collect.BiMap<EObject, EObject> corrIndex,
             Options options) {
+        Map<EObject, EObject> entryIndex = new HashMap<>();
+        for (EObject _e : CorrespondenceModel.getAllEntries(corrResource)) {
+            EObject _src = CorrespondenceModel.getSourceObject(_e);
+            if (_src != null) entryIndex.put(_src, _e);
+        }
 <#list roleBasedTypeMappingModels as entry>
     <#assign rbm = entry.rbm>
         // Pre-populate familyLookup from existing source ${rbm.intermediateType()} objects
@@ -322,18 +332,18 @@
                 // part (family move) and commits the new fingerprint.
                 EObject srcMember = corrIndex.inverse().get(targetObj);
                 if (srcMember != null) {
-                    Optional<EObject> entryOpt = CorrespondenceModel.findBySource(corrResource, srcMember);
-                    if (entryOpt.isPresent()) {
+                    EObject entryOpt = entryIndex.get(srcMember);
+                    if (entryOpt != null) {
                         // Check target containment role (Szenario B backward: Person moves to different list)
                         String _currentTgtRole = targetObj.eContainmentFeature() != null ? targetObj.eContainmentFeature().getName() : "";
-                        String _storedTgtRole  = CorrespondenceModel.getTargetContainmentRole(entryOpt.get());
+                        String _storedTgtRole  = CorrespondenceModel.getTargetContainmentRole(entryOpt);
                         if (_storedTgtRole == null) _storedTgtRole = "";
                         if (!_currentTgtRole.equals(_storedTgtRole)) {
                             // Target containment role changed — update stored role.
                             // For F2P: all Persons are in PersonRegister.persons, so this is effectively a no-op.
-                            CorrespondenceModel.updateTargetContainmentRole(entryOpt.get(), _currentTgtRole);
+                            CorrespondenceModel.updateTargetContainmentRole(entryOpt, _currentTgtRole);
                         }
-                        String storedFp = CorrespondenceModel.getTargetFingerprint(entryOpt.get());
+                        String storedFp = CorrespondenceModel.getTargetFingerprint(entryOpt);
                         if (storedFp == null || storedFp.isEmpty() || !currentFp.equals(storedFp)) {
                             if (srcMember instanceof ${sourcePackageName}.${rbm.sourceType()} m) {
                                 // Update member's first name (Person rename → FamilyMember rename)
@@ -376,7 +386,7 @@
                                     }
                                 }
                                 // Commit fingerprint after all structural changes are applied
-                                CorrespondenceModel.updateTargetFingerprint(entryOpt.get(), currentFp);
+                                CorrespondenceModel.updateTargetFingerprint(entryOpt, currentFp);
                             }
                         }
                     }

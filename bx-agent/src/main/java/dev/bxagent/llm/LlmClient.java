@@ -25,4 +25,13 @@ public interface LlmClient {
      * Returns the model name being used (e.g., "codellama", "claude-opus-4-6").
      */
     String getModelName();
+
+    /** Token usage of the most recent complete() call. */
+    default TokenUsage getLastTokenUsage() { return TokenUsage.ZERO; }
+
+    /** Accumulated token usage across all complete() calls since last reset. */
+    default TokenUsage getAccumulatedTokenUsage() { return TokenUsage.ZERO; }
+
+    /** Reset the accumulated counter. */
+    default void resetAccumulatedTokenUsage() {}
 }

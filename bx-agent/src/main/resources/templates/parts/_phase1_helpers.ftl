@@ -301,6 +301,16 @@
             });
         }
 
+<#list targetLinkMappings as tlm><#if tlm.fkType() == "EOBJECT_TYPE_COLUMN">
+        // Pre-build anchor slot index for O(1) lookup — avoids O(n²) scan in EOBJECT_TYPE_COLUMN
+        Map<String, EObject> _anchorSlotsByName = new java.util.LinkedHashMap<>();
+        if (_tlmAnchorNode != null) {
+            for (EObject _as : _tlmList(_tlmAnchorNode, TLM_SLOTS_F)) {
+                String _asName = _tlmGetStr(_as, TLM_SNAME_F);
+                if (_asName != null) _anchorSlotsByName.put(_asName, _as);
+            }
+        }
+<#break></#if></#list>
         for (Map.Entry<EObject, EObject> _fkEntry : new java.util.ArrayList<>(srcToTgt.entrySet())) {
             EObject _fkSrc = _fkEntry.getKey();
             EObject _fkTgt = _fkEntry.getValue();
@@ -394,14 +404,14 @@
             if (_fkSrc.eClass().getName().equals("EClass") && _tlmIsNodeOf(_fkTgt, TLM_NODES_F) && _tlmAnchorNode != null) {
                 EObject _fkClassNode = _fkTgt;
                 final String _className = _tlmGetStr(_fkClassNode, TLM_NNAME_F);
-                EObject _existingSlot = _tlmList(_tlmAnchorNode, TLM_SLOTS_F).stream()
-                    .filter(s -> _className.equals(_tlmGetStr(s, TLM_SNAME_F))).findFirst().orElse(null);
+                EObject _existingSlot = _anchorSlotsByName.get(_className);
                 if (_existingSlot == null) {
                     EObject _typeSlot = _tlmCreateObj(TLM_SLOT);
                     _tlmSet(_typeSlot, TLM_SNAME_F, _className);
                     _tlmSet(_typeSlot, TLM_STYPE_F, TLM_DEF_T);
                     _tlmAddPropLiteral(_typeSlot, TLM_PROP_F, "Unique");
                     _tlmList(_tlmAnchorNode, TLM_SLOTS_F).add(_typeSlot);
+                    _anchorSlotsByName.put(_className, _typeSlot);
                     EObject _fk = _tlmCreateObj(TLM_LINK);
                     _tlmSet(_fk, TLM_SRC_F, _typeSlot);
                     _tlmSet(_fk, TLM_TGT_F, _fkClassNode);
@@ -411,18 +421,12 @@
                     _addAnnotation(_fk, "${ann}");
                     </#list>
                 } else {
-                    // Slot exists — repair link if its target was nulled by a prior deletion
-                    EObject _repairSlot = _existingSlot;
-                    boolean _fkOk = _tlmList(_tlmAnchorNode, TLM_LINKS_F).stream().anyMatch(lk ->
-                        _tlmGetRef(lk, TLM_SRC_F) == _repairSlot && _tlmGetRef(lk, TLM_TGT_F) == _fkClassNode);
-                    if (!_fkOk) {
-                        _tlmList(_tlmAnchorNode, TLM_LINKS_F).removeIf(lk -> _tlmGetRef(lk, TLM_SRC_F) == _repairSlot);
-                        EObject _repairFk = _tlmCreateObj(TLM_LINK);
-                        _tlmSet(_repairFk, TLM_SRC_F, _repairSlot);
-                        _tlmSet(_repairFk, TLM_TGT_F, _fkClassNode);
-                        _tlmList(_tlmAnchorNode, TLM_LINKS_F).add(_repairFk);
-                        _tlmAddConstraint(_repairFk, TLM_CONS, TLM_CONS_F, TLM_COND_F, TLM_ACT_F, "Delete", "${tlm.deleteEvent()}");
-                    }
+                    // Slot exists — FKs cleared in pre-cleanup, re-add directly
+                    EObject _repairFk = _tlmCreateObj(TLM_LINK);
+                    _tlmSet(_repairFk, TLM_SRC_F, _existingSlot);
+                    _tlmSet(_repairFk, TLM_TGT_F, _fkClassNode);
+                    _tlmList(_tlmAnchorNode, TLM_LINKS_F).add(_repairFk);
+                    _tlmAddConstraint(_repairFk, TLM_CONS, TLM_CONS_F, TLM_COND_F, TLM_ACT_F, "Delete", "${tlm.deleteEvent()}");
                 }
             }
     </#if>

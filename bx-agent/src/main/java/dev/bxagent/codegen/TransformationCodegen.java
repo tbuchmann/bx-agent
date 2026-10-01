@@ -36,17 +36,18 @@ public class TransformationCodegen {
      * @throws RuntimeException if code generation fails
      */
     public GeneratedFile generateTransformation(MappingModel.TransformationSpec spec) {
+        return generateTransformation(spec, "dev.bxagent.generated");
+    }
+
+    public GeneratedFile generateTransformation(MappingModel.TransformationSpec spec, String basePackage) {
         try {
             Template template = freemarkerConfig.getTemplate("Transformation.java.ftl");
-
             Map<String, Object> dataModel = buildDataModel(spec);
-
+            dataModel.put("basePackage", basePackage);
             StringWriter writer = new StringWriter();
             template.process(dataModel, writer);
-
             String fileName = deriveClassName(spec.sourcePackageName(), spec.targetPackageName()) + ".java";
             return new GeneratedFile(fileName, writer.toString());
-
         } catch (IOException | TemplateException e) {
             throw new RuntimeException("Failed to generate transformation code", e);
         }
@@ -60,17 +61,18 @@ public class TransformationCodegen {
      * @throws RuntimeException if code generation fails
      */
     public GeneratedFile generateTest(MappingModel.TransformationSpec spec) {
+        return generateTest(spec, "dev.bxagent.generated");
+    }
+
+    public GeneratedFile generateTest(MappingModel.TransformationSpec spec, String basePackage) {
         try {
             Template template = freemarkerConfig.getTemplate("TransformationTest.java.ftl");
-
             Map<String, Object> dataModel = buildDataModel(spec);
-
+            dataModel.put("basePackage", basePackage);
             StringWriter writer = new StringWriter();
             template.process(dataModel, writer);
-
             String fileName = deriveClassName(spec.sourcePackageName(), spec.targetPackageName()) + "Test.java";
             return new GeneratedFile(fileName, writer.toString());
-
         } catch (IOException | TemplateException e) {
             throw new RuntimeException("Failed to generate test code", e);
         }

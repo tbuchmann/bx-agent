@@ -1,0 +1,7 @@
+#!/bin/bash
+java -jar bx-agent/target/bx-agent-1.0.0-SNAPSHOT.jar \
+  -s examples/bags2bags/Bags1.ecore \
+  -t examples/bags2bags/Bags2.ecore \
+  -o generated \
+  -e incrementalID \
+  -d "Transform a Bags1 model to a Bags2 model. Both models have a root MyBag containing Element objects via the 'elements' containment reference. In Bags1, multiple Element objects may carry the same value (multiset semantics); each Element has a 'value' (EString) attribute. In Bags2, each distinct value appears exactly once as an Element with a 'value' (EString) attribute and a 'multiplicity' (EInt) attribute that counts how many times that value appeared in Bags1. Use aggregationMappings to express this: sourceType=Element, targetType=Element, groupBySourceAttr=value, groupByTargetAttr=value, countTargetAttr=multiplicity, sourceContainerType=MyBag, sourceContainerRef=elements, targetContainerType=MyBag, targetContainerRef=elements, sourceKeyAttributes=[value], targetKeyAttributes=[value]. Include MyBag in typeMappings (1:1 mapping). Do NOT include Element in typeMappings, attributeMappings, or referenceMappings — the aggregationMapping handles it exclusively. Do NOT include the 'elements' reference in referenceMappings. The backward direction is informational only: for each Bags2 Element with multiplicity N, create N Bags1 Element objects with the same value and leave all other attributes at their defaults."

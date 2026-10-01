@@ -18,6 +18,8 @@ public class OllamaClient implements LlmClient {
     private final ChatModel model;
     private final String modelName;
     private final String apiKey; // Not used by Ollama, but included for consistency
+    private TokenUsage lastUsage       = TokenUsage.ZERO;
+    private TokenUsage accumulatedUsage = TokenUsage.ZERO;
 
     public OllamaClient(LlmConfig config) {
         this.modelName = config.getModel();
@@ -44,6 +46,13 @@ public class OllamaClient implements LlmClient {
                 SystemMessage.from(systemPrompt),
                 UserMessage.from(userMessage)
             );
+            var tu = response.tokenUsage();
+            int in  = (tu != null && tu.inputTokenCount()  != null) ? tu.inputTokenCount()  : 0;
+            int out = (tu != null && tu.outputTokenCount() != null) ? tu.outputTokenCount() : 0;
+            lastUsage        = new TokenUsage(in, out);
+            accumulatedUsage = accumulatedUsage.add(lastUsage);
+            System.out.printf("[tokens] %s  input=%d  output=%d  total=%d  (session: %d)%n",
+                modelName, in, out, in + out, accumulatedUsage.total());
             return response.aiMessage().text();
         } catch (Exception e) {
             throw new RuntimeException("Ollama request failed: " + e.getMessage(), e);
@@ -51,12 +60,17 @@ public class OllamaClient implements LlmClient {
     }
 
     @Override
-    public String getProviderName() {
-        return "ollama";
-    }
+    public String getProviderName() { return "ollama"; }
 
     @Override
-    public String getModelName() {
-        return modelName;
-    }
+    public String getModelName() { return modelName; }
+
+    @Override
+    public TokenUsage getLastTokenUsage() { return lastUsage; }
+
+    @Override
+    public TokenUsage getAccumulatedTokenUsage() { return accumulatedUsage; }
+
+    @Override
+    public void resetAccumulatedTokenUsage() { accumulatedUsage = TokenUsage.ZERO; }
 }

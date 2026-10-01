@@ -1,0 +1,2 @@
+#!/bin/bash
+java -jar bx-agent/target/bx-agent-1.0.0-SNAPSHOT.jar -s examples/sets/Sets.ecore -t examples/sets/OrderedSets.ecore -o generated -d "An element contained in the Set is transformed to an element in the ordered set carrying the same value, but in the ordered set it is connected with its predecessor and successor elements to form a linked list. The insertion order in the target model follows the order how elements are processed. A new inserted element is connected with the last element of the list."
