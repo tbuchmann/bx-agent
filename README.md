@@ -1,94 +1,180 @@
-# BXAgent - LLM-driven Generation of EMF Model Transformations
+# BXAgent
 
 [![Java CI with Maven](https://github.com/tbuchmann/bx-agent/workflows/Java%20CI%20with%20Maven/badge.svg)](https://github.com/tbuchmann/bx-agent/actions/workflows/maven.yml)
 [![License](https://img.shields.io/badge/license-EPL--2.0-blue.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-21%2B-orange.svg)](https://openjdk.org/projects/jdk/21/)
 [![Maven](https://img.shields.io/badge/build-Maven-red.svg)](https://maven.apache.org/)
 
-A Java CLI-tool, capable of generating Java Code for a bidirectional and incremental model transformation, based on two `.ecore`-metamodels and a natural language description.
+BXAgent is a Java command-line tool for generating bidirectional, incremental EMF model transformations from two `.ecore` metamodels and an optional natural-language description. It uses an LLM to extract transformation mappings and generates Java transformation code and a test skeleton.
 
 ![BXAgent](bxagent.png)
 
 ## Features
 
-- **LLM-supported mapping extraction** - extracts transformation specifications from pairs of metamodels
-- **Bidirectional transformations** - generates forward and backward transformations
-- **Incremental support** - creates and maintains a correspondence model and employs fingerpring matching of model elements to propagate changes
-- **Support for concurrent synchronization** - is able to handle concurrent updates to both models
-- **Automatic code generation** - creates a complete Java class for the transformation using FreeMarker templates
-- **Compilation validation** - validates the generated code using javac and fixes errors automatically
-- **Multi-provider support** - Ollama, Anthropic Claude, OpenAI
-- **Interactive mode** - solves mapping ambiguities with the help of user prompts
+- LLM-supported mapping extraction from pairs of Ecore metamodels
+- Forward and backward transformation generation
+- Batch and incremental transformation support with a correspondence model
+- Fingerprint-based matching for propagating model changes
+- Synchronization of independently modified source and target models, with conflict and deletion policies
+- Mapping constructs for role-based and conditional mappings, edge materialization, aggregation, and structural deduplication
+- Interactive resolution of unresolved backward mappings
+- Optional generated-code compilation validation and LLM-assisted repair
+- Ollama, Anthropic, and OpenAI providers
+- Interactive REPL with command completion and history
+- Optional Maven/Eclipse project scaffolding and BenchmarX adapter generation
 
-## Installation & Build
+## Requirements
 
-### Prerequisites
+- Java 21 or later
+- Maven 3.6 or later
+- Ollama running locally, or an API key for Anthropic/OpenAI, if you want BXAgent to request mappings from an LLM
 
-- Java 21+
-- Maven 3.6+
-- Ollama for local LLMs (optional)
+## Build
 
-### Build
+Build the multi-module project from its root:
 
 ```bash
 mvn clean package
 ```
 
-Creates a Fat-JAR: `target/bx-agent-1.0.0-SNAPSHOT.jar`
+The modules are `bx-runtime` (the runtime library used by generated transformations) and `bx-agent` (the CLI). The current Maven build uses the Shade Plugin to create the executable, dependency-inclusive JAR:
 
-## Usage
-
-### 1. Configuration
-
-Create `config/agent.properties`:
-
-```properties
-# LLM Provider (ollama, anthropic, openai)
-llm.provider=ollama
-
-# Ollama Configuration
-llm.base_url=http://localhost:11434
-llm.model=devstral-small-2
-llm.temperature=0.2
-llm.timeout=120
-
-# For Anthropic/OpenAI:
-# llm.api_key=sk-...
+```text
+bx-agent/target/bx-agent-1.0.0-SNAPSHOT.jar
 ```
 
-### 2. Generate Transformation
+## Configure an LLM provider
+
+The CLI expects `config/agent.properties` by default. Copy the example and edit it for your provider:
 
 ```bash
-java -jar target/bx-agent-1.0.0-SNAPSHOT.jar \
+cp config/agent.properties.example config/agent.properties
+```
+
+For example, configure Ollama:
+
+```properties
+llm.provider=ollama
+llm.model=devstral-small-2:latest
+llm.base_url=http://localhost:11434
+llm.temperature=0.2
+llm.max_tokens=4096
+llm.timeout=60
+```
+
+The supported provider names are `ollama`, `anthropic`, and `openai`. For Anthropic or OpenAI, set `llm.api_key` in the configuration file or set the `EMT_LLM_API_KEY` environment variable. Do not commit API keys.
+
+## Generate a transformation
+
+Run the CLI from the repository root. For example:
+
+```bash
+java -jar bx-agent/target/bx-agent-1.0.0-SNAPSHOT.jar \
   --source examples/pdb/PersonsDB1.ecore \
   --target examples/pdb/PersonsDB2.ecore \
   --output-dir generated \
-  --description "Map PersonsDB1 to PersonsDB2, combining firstName and lastName into name"
+  --description "Combine firstName and lastName into name; split name in the backward direction"
 ```
+
+This writes the generated transformation class and test skeleton to `generated/`. By default, the generated Java package is `dev.bxagent.generated`; the output directory defaults to `./generated`.
+
+To reuse an existing mapping response instead of asking the LLM to extract a new one, pass `--from-json path/to/mapping-llm-response.json`. The CLI still loads its configuration file. Interactive resolution of ambiguous backward mappings is enabled by default; use `--no-interactive` to disable it. Generated-code validation is off by default; use `--validate` to enable it.
 
 ### CLI options
 
-| Option | Short | Description | Default |
-|--------|----------|--------------|---------|
-| `--source` | `-s` | Path to Source .ecore file | (required) |
-| `--target` | `-t` | Path to Target .ecore file | (required) |
-| `--output-dir` | `-o` | Output directory | `./generated` |
-| `--config` | `-c` | Config file | `config/agent.properties` |
-| `--description` | `-d` | natural language description | (optional) |
-| `--validate` | `--no-validate` | | activate/deactivate Code validation | `true` |
-| `--interactive` | `--no-interactive` | | interactive mode | `true` |
-| `--exclude` | `-e`| Exclude features from mapping | (optional) |
-| `--help` | `-h` | show help | |
-| `--version` | `-V` | show version | |
+| Option | Description | Default |
+|---|---|---|
+| `-s`, `--source` | Source `.ecore` metamodel (required) | — |
+| `-t`, `--target` | Target `.ecore` metamodel (required) | — |
+| `-o`, `--output-dir` | Directory for generated Java files | `./generated` |
+| `-c`, `--config` | Path to `agent.properties` | `config/agent.properties` |
+| `-d`, `--description` | Natural-language transformation description | — |
+| `-e`, `--exclude-attr` | Attribute(s) to exclude from mapping and fingerprinting; repeatable | — |
+| `--from-json` | Load a cached mapping response instead of calling the LLM | — |
+| `--interactive`, `--no-interactive` | Enable or disable interactive backward-mapping prompts | `true` |
+| `--validate`, `--no-validate` | Compile-check generated code and attempt LLM-assisted repair | `false` |
+| `--debug-log`, `--no-debug-log` | Write LLM prompts and raw response to `llm-debug.log` | `false` |
+| `--base-package` | Package for generated Java classes | `dev.bxagent.generated` |
+| `--project-dir` | Also scaffold a standalone Maven/Eclipse project at this path | — |
+| `--project-name` | Eclipse project name | Derived from metamodel names |
+| `--group-id`, `--artifact-id` | Maven coordinates for the scaffolded project | Derived from project name |
+| `--source-metamodel-dep`, `--target-metamodel-dep` | Metamodel Maven dependency in `groupId:artifactId:version` form | — |
+| `--benchmarx-path` | BenchmarX project root; enables adapter generation | — |
+| `--adapter-package` | Package for the generated BenchmarX adapter | `<base-package>.implementations.bxagent` |
+| `-h`, `--help` | Show help | — |
+| `-V`, `--version` | Show version | — |
 
-## Technology Stack
+## Interactive REPL
 
-- **Java 21** - Pattern Matching, Sealed Interfaces, Records
-- **Picocli 4.7.7** - CLI Framework
-- **Eclipse EMF 2.29.0** - Ecore Parsing (standalone)
-- **Langchain4j 1.11.0** - LLM-Integration
-- **FreeMarker 2.3.34** - Template Engine
-- **Jackson 2.21.0** - JSON Processing
-- **JUnit 6.0.3** - Testing
-- **Maven Shade Plugin** - Fat JAR Packaging
+Starting BXAgent with no arguments opens the REPL:
 
+```bash
+java -jar bx-agent/target/bx-agent-1.0.0-SNAPSHOT.jar
+```
+
+Use `/help` to see commands. A typical session sets the metamodels and description, creates or loads a mapping plan, then generates code:
+
+```text
+/source examples/pdb/PersonsDB1.ecore
+/target examples/pdb/PersonsDB2.ecore
+/description Combine firstName and lastName into name
+/plan
+/build
+/show code
+```
+
+The REPL also supports loading a cached plan with `/plan --from <file>`, inspecting session state, integrating generated files, running tests, and scaffolding Maven/Eclipse projects.
+
+## Synchronize existing models
+
+The `sync` subcommand synchronizes source and target `.xmi` models using an already generated transformation class and correspondence model:
+
+```bash
+java -jar bx-agent/target/bx-agent-1.0.0-SNAPSHOT.jar sync \
+  --src families.xmi \
+  --tgt persons.xmi \
+  --transformation-class dev.bxagent.generated.Families2PersonsTransformation \
+  --conflict-policy SOURCE_WINS \
+  --deletion-policy CASCADE
+```
+
+If `--corr` is omitted, BXAgent derives the correspondence-model path from the source and target filenames. Available conflict policies are `SOURCE_WINS` (default), `TARGET_WINS`, and `LOG_AND_SKIP`. Available deletion policies are `CASCADE` (default), `ORPHAN`, and `TOMBSTONE`. The generated transformation class must be available on the Java classpath.
+
+## Transformation examples
+
+The repository includes eight shell scripts that run example transformations. Run them from the repository root after building and configuring BXAgent:
+
+| Script | Example |
+|---|---|
+| [`pdb.sh`](pdb.sh) | Persons database: combine and split person names |
+| [`f2p.sh`](f2p.sh) | Families to Persons: map family members to role-specific people |
+| [`s2os.sh`](s2os.sh) | Sets to OrderedSets: preserve values and establish list order |
+| [`pn2pnw.sh`](pn2pnw.sh) | Petri nets: materialize connections as weighted edge objects |
+| [`gantt2cpm.sh`](gantt2cpm.sh) | Gantt to CPM: map activities/dependencies and flag unresolved event handling |
+| [`ecore2sql.sh`](ecore2sql.sh) | Ecore to SQL: use cached mappings for schema and table generation |
+| [`bags2bags.sh`](bags2bags.sh) | Bags: aggregate repeated values into multiplicities |
+| [`ast2dag.sh`](ast2dag.sh) | Expression AST to DAG: structurally deduplicate shared expressions |
+
+For example:
+
+```bash
+bash ./pdb.sh
+```
+
+The scripts write generated files to `generated/`. `ecore2sql.sh` explicitly uses the checked-in cached mapping response, so it does not request mapping extraction from the LLM. The other scripts request mappings from the configured provider. Cached mapping response files are also included for the `bags2bags` and `ast2dag` examples; to use one, add `--from-json examples/<example>/mapping-llm-response.json` to its script command.
+
+## Technology
+
+- Java 21
+- Maven multi-module build (`bx-agent` and `bx-runtime`)
+- Picocli and JLine for the CLI and interactive terminal
+- Eclipse EMF for Ecore and model handling
+- LangChain4j for Ollama, Anthropic, and OpenAI integrations
+- FreeMarker for transformation and project generation
+- Jackson for JSON processing
+- JUnit for tests
+- Maven Shade Plugin for the executable CLI JAR
+
+## License
+
+BXAgent is licensed under the [Eclipse Public License 2.0](LICENSE).
